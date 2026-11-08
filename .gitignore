@@ -1,0 +1,16 @@
+# Icarus Verilog simulation outputs
+sim
+sim_*
+*.vvp
+*.vcd
+*.fst
+*.lxt
+*.lxt2
+
+# GTKWave save files
+*.gtkw
+
+# Editor / OS files
+*~
+*.swp
+.DS_Store
