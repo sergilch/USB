@@ -17,10 +17,10 @@ vvp sim_bs
 
 - Each testbench self-checks. It prints `TEST PASSED`, or `TEST FAILED: <n> error(s)`, or `TEST FAILED: timeout` from a watchdog. Check this line, not the exit code.
 - Each testbench writes `tb_<module>.vcd` for waveform viewing.
-- Unit testbenches: `tb_usb_bit_stuffer`, `tb_usb_tx_serializer`, `tb_usb_tx_holding` (also needs `usb_ulpi_input_capture.v`), `tb_usb_ulpi_input_capture`, `tb_usb_ulpi_bus_owner`, `tb_usb_ulpi_reg_file`.
+- Unit testbenches: `tb_usb_bit_stuffer`, `tb_usb_tx_serializer`, `tb_usb_tx_sync_mux`, `tb_usb_nrzi_encoder`, `tb_usb_tx_path` (needs stuffer, NRZI and serializer), `tb_usb_tx_holding` (also needs `usb_ulpi_input_capture.v`), `tb_usb_ulpi_input_capture`, `tb_usb_ulpi_bus_owner`, `tb_usb_ulpi_reg_file`.
 - Integration testbenches: `tb_usb_ulpi_tx_top`, `tb_usb_ulpi_core` and `tb_usb_ulpi_phy_if`, from smallest to largest. Their file lists are long. Copy them from the header.
 
-**Missing sources:** the integration file lists include `usb_tx_sync_mux.v`, `usb_nrzi_encoder.v` and `usb_tx_path.v`, but none of these files are in the repo yet. `usb_tx_datapath.v` instantiates `usb_tx_sync_mux` and `usb_tx_path`. So only the unit testbenches build until those files are added. Also, `iverilog` was not installed on this machine when this file was written.
+**Status:** all twelve testbenches build and pass with Icarus Verilog (installed on this machine). `usb_tx_sync_mux.v`, `usb_nrzi_encoder.v` and `usb_tx_path.v` were added on 2026-11-08; before that only the unit testbenches built.
 
 ## Architecture
 

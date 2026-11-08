@@ -10,7 +10,7 @@ The analog front end, the line-state, VBUS and ID detectors, and the RX datapath
 
 - **ULPI 1.1 PHY-side interface:** DIR / NXT / STP / DATA[7:0], with bus turnaround, NXT pacing and TXCMD decoding.
 - **Register access:** immediate (00h–3Fh) and extended (AFh / EFh, pointer 2Fh) register reads and writes.
-- **Register file:** Vendor/Product ID, Function Control, Interface Control, OTG Control, USB Interrupt Enable Rising/Falling, Status, Latch, Debug and Scratch, with SET/CLR aliases. VID/PID default to the USB3300 values.
+- **Register file:** Vendor/Product ID, Function Control, Interface Control, OTG Control, USB Interrupt Enable Rising/Falling, Status, Latch, Debug and Scratch, with SET/CLR aliases. VID/PID default to the USB3320 values (0424h / 0007h).
 - **TX path:** 4-byte holding FIFO → SYNC/PID mux → bit stuffer → NRZI encoder → serializer + EOP.
   - HS, FS and LS bit rates selected by XcvrSelect, sampled at packet start.
   - HS EOP is 8 bit times at the inverted level. FS/LS EOP is SE0 for 2 bits, then J.
@@ -76,17 +76,23 @@ Every testbench checks its own results and ends with `TEST PASSED`, `TEST FAILED
 |-------------------------------|------------------------------------------------------|
 | `tb_usb_bit_stuffer.v`        | `usb_bit_stuffer.v`                                  |
 | `tb_usb_tx_serializer.v`      | `usb_tx_serializer.v`                                |
+| `tb_usb_tx_sync_mux.v`        | `usb_tx_sync_mux.v`                                  |
+| `tb_usb_nrzi_encoder.v`       | `usb_nrzi_encoder.v`                                 |
+| `tb_usb_tx_path.v`            | `usb_bit_stuffer.v` `usb_nrzi_encoder.v` `usb_tx_serializer.v` `usb_tx_path.v` |
 | `tb_usb_tx_holding.v`         | `usb_ulpi_input_capture.v` `usb_tx_holding.v`        |
 | `tb_usb_ulpi_input_capture.v` | `usb_ulpi_input_capture.v`                           |
 | `tb_usb_ulpi_bus_owner.v`     | `usb_ulpi_bus_owner.v`                               |
 | `tb_usb_ulpi_reg_file.v`      | `usb_ulpi_reg_file.v`                                |
 
-To run all of them:
+To run all the unit testbenches:
 
 ```sh
 run() { n=$1; shift; iverilog -g2005 -o sim_$n "$@" tb_usb_$n.v && echo "$n: $(vvp sim_$n | grep 'TEST ')"; }
 run bit_stuffer        usb_bit_stuffer.v
 run tx_serializer      usb_tx_serializer.v
+run tx_sync_mux        usb_tx_sync_mux.v
+run nrzi_encoder       usb_nrzi_encoder.v
+run tx_path            usb_bit_stuffer.v usb_nrzi_encoder.v usb_tx_serializer.v usb_tx_path.v
 run tx_holding         usb_ulpi_input_capture.v usb_tx_holding.v
 run ulpi_input_capture usb_ulpi_input_capture.v
 run ulpi_bus_owner     usb_ulpi_bus_owner.v
@@ -99,8 +105,8 @@ run ulpi_reg_file      usb_ulpi_reg_file.v
 
 ## Project status
 
-- ✅ All six unit testbenches pass with Icarus Verilog.
-- ⚠️ `usb_tx_sync_mux.v`, `usb_nrzi_encoder.v` and `usb_tx_path.v` are not in the repository yet. `usb_tx_datapath.v` needs them, so the integration testbenches and the top levels do not build until they are added.
+- ✅ The TX path is complete. All nine unit testbenches and all three integration testbenches pass with Icarus Verilog.
+- ⏳ The RX datapath, line-state detection, mode/termination control, OTG/VBUS control, clock/reset/power management and the AFE interface are still to be written. See [WORK_PLAN.md](WORK_PLAN.md).
 - ⏳ Not implemented yet. These signals are exported, but no logic reacts to them:
   - OpMode `01` / `11` (driver disable)
   - `soft_reset`

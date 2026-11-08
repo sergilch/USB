@@ -1,0 +1,210 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="USB PHY ULPI digital" id="usbphy1">
+    <mxGraphModel dx="1600" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2400" pageHeight="1250" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="title" value="&lt;b&gt;USB 2.0 PHY (HS/FS/LS) - Digital Part with ULPI Interface (reference: USB3320)&lt;/b&gt;" style="text;html=1;fontSize=18;align=left;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="250" y="15" width="1500" height="40" as="geometry"/>
+        </mxCell>
+
+        <!-- Containers -->
+        <mxCell id="cDig" value="&lt;b&gt;DIGITAL CORE&lt;/b&gt; (VDD18 domain; clk60 = ULPI domain, clk_bit = recovered CDR clock)" style="rounded=0;whiteSpace=wrap;html=1;dashed=1;fillColor=none;strokeColor=#336699;strokeWidth=2;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=12;fontColor=#336699;" vertex="1" parent="1">
+          <mxGeometry x="250" y="70" width="1180" height="1010" as="geometry"/>
+        </mxCell>
+        <mxCell id="cAfe" value="&lt;b&gt;AFE (analog) - already in development&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;dashed=1;fillColor=none;strokeColor=#b85450;strokeWidth=2;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=12;fontColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="1580" y="70" width="420" height="1010" as="geometry"/>
+        </mxCell>
+
+        <!-- External -->
+        <mxCell id="link" value="&lt;b&gt;ULPI Link&lt;/b&gt;&lt;br&gt;(SoC / FPGA / USB controller)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="20" y="130" width="140" height="270" as="geometry"/>
+        </mxCell>
+        <mxCell id="sys" value="&lt;b&gt;System&lt;/b&gt;&lt;br&gt;REFCLK (19.2 / 24 / 26 MHz)&lt;br&gt;RESETB" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="20" y="760" width="140" height="120" as="geometry"/>
+        </mxCell>
+
+        <!-- ULPI IF -->
+        <mxCell id="ulpi" value="&lt;b&gt;ULPI Interface Controller&lt;/b&gt;&lt;br&gt;&lt;br&gt;8-bit SDR, 60 MHz&lt;br&gt;DIR / NXT / STP handshake&lt;br&gt;Bus turnaround (TX / RX)&lt;br&gt;TXCMD decode (NOPID / PID)&lt;br&gt;RXCMD generation (LineState, VbusState, RxActive, RxError, ID)&lt;br&gt;Register read/write FSM&lt;br&gt;STP abort handling" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=4;" vertex="1" parent="1">
+          <mxGeometry x="280" y="130" width="200" height="270" as="geometry"/>
+        </mxCell>
+
+        <!-- TX path -->
+        <mxCell id="tx1" value="&lt;b&gt;TX Holding Reg / Ctrl&lt;/b&gt;&lt;br&gt;TXCMD payload, NXT pacing" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="540" y="130" width="140" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="tx2" value="&lt;b&gt;SYNC + PID/Data Mux&lt;/b&gt;&lt;br&gt;SYNC pattern per speed" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="720" y="130" width="140" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="tx3" value="&lt;b&gt;Bit Stuffer&lt;/b&gt;&lt;br&gt;insert 0 after six 1s" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="900" y="130" width="140" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="tx4" value="&lt;b&gt;NRZI Encoder&lt;/b&gt;&lt;br&gt;(bypass in chirp / test modes)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="130" width="140" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="tx5" value="&lt;b&gt;Serializer 8:1 + EOP Gen&lt;/b&gt;&lt;br&gt;480 / 12 / 1.5 Mbps, SE0 EOP" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1260" y="130" width="140" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- Control/event bus 1 -->
+        <mxCell id="bus1" value="DATAPATH CONTROL / EVENT BUS - OpMode, XcvrSelect, TermSelect, speed, enables to TX/RX | LineState, VbusState, RxActive, RxError, HostDisconnect, IdGnd to RXCMD" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="540" y="235" width="860" height="30" as="geometry"/>
+        </mxCell>
+
+        <!-- RX path -->
+        <mxCell id="rx1" value="&lt;b&gt;SYNC Detect + Deserializer 1:8&lt;/b&gt;&lt;br&gt;bit/byte alignment" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1260" y="290" width="140" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="rx2" value="&lt;b&gt;NRZI Decoder&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="290" width="140" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="rx3" value="&lt;b&gt;Bit Unstuffer&lt;/b&gt;&lt;br&gt;stuff-error detect" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="900" y="290" width="140" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="rx4" value="&lt;b&gt;EOP Detect + RxError Check&lt;/b&gt;&lt;br&gt;RxActive framing" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="720" y="290" width="140" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="rx5" value="&lt;b&gt;Elastic Buffer (CDC) + RXCMD Mux&lt;/b&gt;&lt;br&gt;clk_bit to clk60" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="540" y="290" width="140" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- Control row -->
+        <mxCell id="regs" value="&lt;b&gt;ULPI Register File&lt;/b&gt;&lt;br&gt;VID/PID 00h-03h, FuncCtrl 04h, IfCtrl 07h, OTGCtrl 0Ah, USB IE R/F 0Dh/10h, IntStatus 13h, Latch 14h, Debug 15h, Scratch 16h; Set/Clr aliases; Ext. access 2Fh" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="280" y="520" width="200" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="mode" value="&lt;b&gt;Mode / Termination Control&lt;/b&gt;&lt;br&gt;XcvrSelect[1:0], TermSelect, OpMode[1:0], SuspendM, Reset; DP 1.5k pull-up / HS term / pull-downs; speed select" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="520" y="520" width="200" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="hs" value="&lt;b&gt;HS Handshake / Chirp FSM&lt;/b&gt;&lt;br&gt;Device chirp-K, KJKJKJ detect, HS detect, SE0 reset detect, Suspend / Resume, remote wakeup" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="750" y="520" width="200" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="otg" value="&lt;b&gt;OTG / VBUS Control&lt;/b&gt;&lt;br&gt;ID pull-up, DrvVbus, Charge / Discharge VBUS, SessValid, SessEnd, VbusValid, IdGnd" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="980" y="520" width="170" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="ls" value="&lt;b&gt;Line State / Event Detector&lt;/b&gt;&lt;br&gt;LineState[1:0] sync + debounce, squelch, HS disconnect, RxActive / RxError, HostDisconnect to RXCMD / interrupt" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1180" y="520" width="220" height="120" as="geometry"/>
+        </mxCell>
+
+        <!-- Bus 2 -->
+        <mxCell id="bus2" value="CONFIG / STATUS BUS - register file to all blocks (XcvrSelect, TermSelect, OpMode, pull-up/pull-down enables, VBUS comparators, IdGnd, ...)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="280" y="680" width="1120" height="30" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="clk" value="&lt;b&gt;Clock / Reset / Power Mgmt&lt;/b&gt;&lt;br&gt;REFCLK select, PLL enable + lock wait, CLKOUT 60 MHz, clock gating in Suspend, POR + reset sync, power-good" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="280" y="760" width="220" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="dft" value="&lt;b&gt;DFT / Test Modes&lt;/b&gt;&lt;br&gt;USB-IF Test_J / Test_K / Test_SE0_NAK / Test_Packet, digital loopback, scan, BIST" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="520" y="940" width="440" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="afeif" value="&lt;b&gt;AFE INTERFACE&lt;/b&gt; (digital / analog boundary)&lt;br&gt;&lt;br&gt;synchronizers + glitch filters for analog status&lt;br&gt;level shifters / isolation cells&lt;br&gt;trim + enable registers&lt;br&gt;reset synchronization&lt;br&gt;PLL / CDR control and lock status" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="750" width="400" height="280" as="geometry"/>
+        </mxCell>
+
+        <!-- AFE blocks -->
+        <mxCell id="R1" value="&lt;b&gt;Transmitter&lt;/b&gt;&lt;br&gt;HS current-mode driver, FS/LS driver, slew control" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1620" y="120" width="340" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="R3" value="&lt;b&gt;PLL + CDR&lt;/b&gt;&lt;br&gt;480 MHz bit clock, 60 MHz clk60, data recovery" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1620" y="280" width="340" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="R2" value="&lt;b&gt;Receiver&lt;/b&gt;&lt;br&gt;HS diff receiver, squelch + disconnect comparators, FS/LS diff + single-ended receivers (DP, DN)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1620" y="520" width="340" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="R4" value="&lt;b&gt;Termination / Pull Resistors&lt;/b&gt;&lt;br&gt;1.5 kOhm DP/DN pull-up (switchable), HS 45 Ohm terminations, 15 kOhm pull-downs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1620" y="770" width="340" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="R5" value="&lt;b&gt;VBUS Comparators / ID Detect&lt;/b&gt;&lt;br&gt;(OTG, optional)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1620" y="880" width="340" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="R6" value="&lt;b&gt;1.8 V Regulator&lt;/b&gt; (digital supply)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1620" y="980" width="340" height="70" as="geometry"/>
+        </mxCell>
+
+        <!-- Pins -->
+        <mxCell id="pinDP" value="&lt;b&gt;DP / DN&lt;/b&gt;&lt;br&gt;USB connector&lt;br&gt;D+ / D-" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="2100" y="120" width="160" height="740" as="geometry"/>
+        </mxCell>
+        <mxCell id="pinVB" value="&lt;b&gt;VBUS / ID&lt;/b&gt;&lt;br&gt;USB connector" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="2100" y="880" width="160" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="note" value="Clock domains: clk60 = ULPI / digital domain (60 MHz from PLL, output as CLKOUT). clk_bit = clock recovered by CDR (480 / 12 / 1.5 Mbps); the Elastic Buffer crosses RX data into clk60. Dashed red = analog AFE, dashed blue = digital core. Green = TX path, yellow = RX path, purple = control, grey = buses." style="text;html=1;fontSize=11;align=left;verticalAlign=top;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="250" y="1095" width="1750" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- Edges: ULPI link -->
+        <mxCell id="eCLK" value="CLKOUT (60 MHz)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=10;labelBackgroundColor=#ffffff;exitX=0;exitY=0.111;exitDx=0;exitDy=0;entryX=1;entryY=0.111;entryDx=0;entryDy=0;" edge="1" parent="1" source="ulpi" target="link"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eDIR" value="DIR" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=10;labelBackgroundColor=#ffffff;exitX=0;exitY=0.315;exitDx=0;exitDy=0;entryX=1;entryY=0.315;entryDx=0;entryDy=0;" edge="1" parent="1" source="ulpi" target="link"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eNXT" value="NXT" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=10;labelBackgroundColor=#ffffff;exitX=0;exitY=0.519;exitDx=0;exitDy=0;entryX=1;entryY=0.519;entryDx=0;entryDy=0;" edge="1" parent="1" source="ulpi" target="link"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eSTP" value="STP" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=10;labelBackgroundColor=#ffffff;exitX=1;exitY=0.722;exitDx=0;exitDy=0;entryX=0;entryY=0.722;entryDx=0;entryDy=0;" edge="1" parent="1" source="link" target="ulpi"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eDATA" value="DATA[7:0]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=classic;endArrow=classic;strokeWidth=3;fontSize=10;labelBackgroundColor=#ffffff;exitX=1;exitY=0.889;exitDx=0;exitDy=0;entryX=0;entryY=0.889;entryDx=0;entryDy=0;" edge="1" parent="1" source="link" target="ulpi"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- System -->
+        <mxCell id="eSys" value="REFCLK, RESETB" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=10;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="sys" target="clk"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- ULPI IF to TX/RX -->
+        <mxCell id="eU2T" value="TXCMD+DATA" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=1;exitY=0.148;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="ulpi" target="tx1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eR2U" value="RXD/RXCMD" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.593;entryDx=0;entryDy=0;" edge="1" parent="1" source="rx5" target="ulpi"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eBus1U" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.444;entryDx=0;entryDy=0;" edge="1" parent="1" source="bus1" target="ulpi"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- TX chain -->
+        <mxCell id="eT12" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;" edge="1" parent="1" source="tx1" target="tx2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eT23" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;" edge="1" parent="1" source="tx2" target="tx3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eT34" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;" edge="1" parent="1" source="tx3" target="tx4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eT45" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;" edge="1" parent="1" source="tx4" target="tx5"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- RX chain (right to left) -->
+        <mxCell id="eR12" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;" edge="1" parent="1" source="rx1" target="rx2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eR23" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;" edge="1" parent="1" source="rx2" target="rx3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eR34" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;" edge="1" parent="1" source="rx3" target="rx4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eR45" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;" edge="1" parent="1" source="rx4" target="rx5"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- Register file to ULPI IF -->
+        <mxCell id="eRegU" value="Reg R/W" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=classic;endArrow=classic;strokeWidth=2;fontSize=10;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="regs" target="ulpi"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- Control blocks to bus1 (through RX-row gaps) -->
+        <mxCell id="eModeB1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;dashed=1;exitX=0.9;exitY=0;exitDx=0;exitDy=0;entryX=0.186;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="mode" target="bus1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eHsB1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;dashed=1;exitX=0.65;exitY=0;exitDx=0;exitDy=0;entryX=0.395;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="hs" target="bus1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eLsB1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;dashed=1;exitX=0.27;exitY=0;exitDx=0;exitDy=0;entryX=0.814;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="ls" target="bus1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eB1Tx" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;dashed=1;exitX=0.919;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="bus1" target="tx5"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eB1Rx" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;dashed=1;exitX=0.919;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="bus1" target="rx1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- Control blocks to bus2 -->
+        <mxCell id="eRegB2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=classic;endArrow=classic;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.0893;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="regs" target="bus2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eModeB2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=classic;endArrow=classic;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.3036;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="mode" target="bus2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eHsB2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=classic;endArrow=classic;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5089;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="hs" target="bus2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eOtgB2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=classic;endArrow=classic;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.7009;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="otg" target="bus2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eLsB2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=classic;endArrow=classic;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.9018;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="ls" target="bus2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eDftB2" value="scan / test modes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=classic;endArrow=classic;strokeWidth=2;dashed=1;fontSize=10;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.4107;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="dft" target="bus2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eB2Afe" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=classic;endArrow=classic;strokeWidth=2;exitX=0.821;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="bus2" target="afeif"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- Clock block to AFE IF -->
+        <mxCell id="eClkAfe" value="REFCLK sel, PLL ctrl/lock, CLK60, resets" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=classic;endArrow=classic;strokeWidth=2;fontSize=10;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.25;entryDx=0;entryDy=0;" edge="1" parent="1" source="clk" target="afeif"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- Digital to AFE -->
+        <mxCell id="eTx2Afe" value="TXD, TX_EN, TX_SE0, speed/mode" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=10;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="tx5" target="R1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eCdr2Rx" value="RXD (retimed) + clk_bit" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=10;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="R3" target="rx1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eRx2Cdr" value="RX serial data" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=10;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="R2" target="R3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eRx2Ls" value="RXDP, RXDM, RXRCV, SQUELCH, DISCONNECT" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=9;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="R2" target="ls"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="ePll" value="PLL_EN, CDR ctrl / lock" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=classic;endArrow=classic;strokeWidth=2;fontSize=9;labelBackgroundColor=#ffffff;exitX=1;exitY=0.036;exitDx=0;exitDy=0;entryX=0;entryY=0.8;entryDx=0;entryDy=0;" edge="1" parent="1" source="afeif" target="R3">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1450" y="760"/>
+              <mxPoint x="1450" y="360"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="eAfe2Term" value="DP_PULLUP_EN, HS_TERM_EN, PULLDOWN_EN" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=9;labelBackgroundColor=#ffffff;exitX=1;exitY=0.232;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="afeif" target="R4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eAfe2Vbus" value="VBUS/ID status, ID_PULLUP, DRVVBUS, CHRG/DISCHRG" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=classic;endArrow=classic;strokeWidth=2;fontSize=9;labelBackgroundColor=#ffffff;exitX=1;exitY=0.607;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="afeif" target="R5"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eLdo" value="VDD18, PWR_GOOD" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=9;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.946;entryDx=0;entryDy=0;" edge="1" parent="1" source="R6" target="afeif"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- AFE to pins -->
+        <mxCell id="ePinTx" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.0676;entryDx=0;entryDy=0;" edge="1" parent="1" source="R1" target="pinDP"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="ePinRx" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;exitX=0;exitY=0.6216;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pinDP" target="R2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="ePinTerm" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=none;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.9392;entryDx=0;entryDy=0;" edge="1" parent="1" source="R4" target="pinDP"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="ePinVb" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=classic;endArrow=classic;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="R5" target="pinVB"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

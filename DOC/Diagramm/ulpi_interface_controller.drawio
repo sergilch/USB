@@ -1,0 +1,135 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="ULPI Interface Controller" id="ulpiif1">
+    <mxGraphModel dx="1600" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2000" pageHeight="1350" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="title" value="&lt;b&gt;ULPI Interface Controller - Detailed Block Diagram (8-bit SDR, 60 MHz, PHY side)&lt;/b&gt;" style="text;html=1;fontSize=18;align=left;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="200" y="10" width="1500" height="40" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="cont" value="&lt;b&gt;ULPI INTERFACE CONTROLLER&lt;/b&gt; (clk60 domain, VDD18)" style="rounded=0;whiteSpace=wrap;html=1;dashed=1;fillColor=none;strokeColor=#336699;strokeWidth=2;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=12;fontColor=#336699;" vertex="1" parent="1">
+          <mxGeometry x="200" y="60" width="1280" height="1090" as="geometry"/>
+        </mxCell>
+
+        <!-- External: Link and system -->
+        <mxCell id="link" value="&lt;b&gt;ULPI Link&lt;/b&gt;&lt;br&gt;(SoC / FPGA / USB controller)&lt;br&gt;&lt;br&gt;CLKOUT&lt;br&gt;DIR&lt;br&gt;NXT&lt;br&gt;STP&lt;br&gt;DATA[7:0]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="20" y="100" width="130" height="840" as="geometry"/>
+        </mxCell>
+        <mxCell id="sysx" value="&lt;b&gt;Clock / Reset Mgmt&lt;/b&gt;&lt;br&gt;(PHY top)&lt;br&gt;clk60, RESETB, PLL lock, SuspendM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="20" y="980" width="130" height="100" as="geometry"/>
+        </mxCell>
+
+        <!-- Column A: pad / IO side -->
+        <mxCell id="a3" value="&lt;b&gt;Input Capture&lt;/b&gt;&lt;br&gt;data_in_q[7:0], stp_q registered on clk60&lt;br&gt;Valid only when DIR=0 and not in turnaround" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="230" y="110" width="210" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="a2" value="&lt;b&gt;DATA[7:0] Bidirectional IO&lt;/b&gt;&lt;br&gt;PHY drives only when oe=1 (DIR=1, after turnaround), Hi-Z otherwise&lt;br&gt;Pad cells with weak hold" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="230" y="290" width="210" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="a4" value="&lt;b&gt;Output Registers&lt;/b&gt;&lt;br&gt;data_out_q[7:0], dir_q, nxt_q, oe_q&lt;br&gt;All outputs registered on clk60 to meet ULPI output timing (check spec / datasheet)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="230" y="620" width="210" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="a1" value="&lt;b&gt;CLKOUT Driver + Clock Gate&lt;/b&gt;&lt;br&gt;clk60 from PLL, glitch-free gate" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="230" y="860" width="210" height="70" as="geometry"/>
+        </mxCell>
+
+        <!-- Link to PHY path (green) -->
+        <mxCell id="b1" value="&lt;b&gt;TXCMD Decoder / Input Qualifier&lt;/b&gt;&lt;br&gt;Accepts DATA only when DIR=0 and not in turnaround&lt;br&gt;00h NOOP&lt;br&gt;40h TX NOPID | 41h-4Fh TX PID (PID[3:0] = low nibble)&lt;br&gt;80h-BFh REG WRITE (AFh = extended)&lt;br&gt;C0h-FFh REG READ (EFh = extended)&lt;br&gt;Other codes: ignored (NOOP)&lt;br&gt;STP qualification (stp_evt)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="500" y="110" width="240" height="180" as="geometry"/>
+        </mxCell>
+        <mxCell id="b2" value="&lt;b&gt;TX Control FSM&lt;/b&gt;&lt;br&gt;IDLE -&gt; WAIT_READY -&gt; STREAM -&gt; END -&gt; EOP_WAIT&lt;br&gt;PID builder: {~PID[3:0], PID[3:0]} (PID mode) or raw bytes (NOPID)&lt;br&gt;NXT=1 for every byte accepted from Link&lt;br&gt;STP (DATA=00h) ends packet, EOP appended by TX path&lt;br&gt;Abort if PHY takes the bus (DIR=1)&lt;br&gt;Uses OpMode / XcvrSelect from FuncCtrl" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="1180" y="110" width="260" height="180" as="geometry"/>
+        </mxCell>
+        <mxCell id="b3" value="&lt;b&gt;Register Access FSM&lt;/b&gt;&lt;br&gt;WRITE: CMD -&gt; NXT ack -&gt; DATA -&gt; STP commit (reg_wr)&lt;br&gt;EXT WRITE: CMD(AFh) -&gt; NXT -&gt; ADDR -&gt; NXT -&gt; DATA -&gt; STP&lt;br&gt;READ: CMD -&gt; turnaround -&gt; DIR=1, NXT=0, DATA = reg value -&gt; turnaround&lt;br&gt;EXT READ: CMD(EFh) -&gt; NXT -&gt; ADDR -&gt; data return&lt;br&gt;Outputs: reg_addr[7:0], reg_wdata, reg_wr, reg_rd, reg_ext&lt;br&gt;Set/Clr aliases resolved in Register File" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="830" y="340" width="260" height="200" as="geometry"/>
+        </mxCell>
+
+        <!-- Internal bus -->
+        <mxCell id="bus" value="ULPI INTERNAL BUS: stp_evt, din[7:0], nxt_req (TX / Reg), tx/reg status, rx_active, rx_abort, dir_hold, clk60, rst_n" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="500" y="560" width="940" height="26" as="geometry"/>
+        </mxCell>
+
+        <!-- PHY to Link path (yellow) -->
+        <mxCell id="c1" value="&lt;b&gt;RX Data Handler&lt;/b&gt;&lt;br&gt;From RX datapath: rx_data[7:0], rx_valid, rx_start, rx_end, rx_error&lt;br&gt;Small skid buffer (ULPI has no RX flow control)&lt;br&gt;Each valid byte -&gt; arbiter with NXT=1&lt;br&gt;rx_start / rx_end force RXCMD (RxActive 1 / 0)&lt;br&gt;STP while DIR=1 = Link abort (rx_abort)&lt;br&gt;Overflow -&gt; RxError" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="1180" y="620" width="260" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3" value="&lt;b&gt;Output Arbiter / Byte Mux&lt;/b&gt;&lt;br&gt;Priority: 1) RX data byte 2) RXCMD 3) register read data 4) idle 00h&lt;br&gt;RXCMD inserted before first RX byte and after last&lt;br&gt;NXT=1 marks RX data; NXT=0 marks RXCMD / register data&lt;br&gt;Requests bus from Bus-Owner FSM, sends byte when granted" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="830" y="620" width="260" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="c4" value="&lt;b&gt;Bus-Owner FSM (DIR / Turnaround)&lt;/b&gt;&lt;br&gt;LINK_OWNS (DIR=0) -&gt; TURN_TO_PHY (1 clk, Hi-Z) -&gt; PHY_OWNS (DIR=1) -&gt; TURN_TO_LINK (1 clk)&lt;br&gt;PHY wins collision with TXCMD&lt;br&gt;nxt = TX/Reg nxt_req or RX data valid&lt;br&gt;Drives dir, oe, nxt to output regs&lt;br&gt;Low power: DIR held high" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="500" y="620" width="240" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2" value="&lt;b&gt;RXCMD Generator&lt;/b&gt;&lt;br&gt;[1:0] LineState | [3:2] VbusState&lt;br&gt;[5:4] RxEvent: 00 idle, 01 RxActive, 11 RxActive+RxError, 10 HostDisconnect&lt;br&gt;[6] ID | [7] ALT_INT&lt;br&gt;Shadow register of last-sent RXCMD + change detector -&gt; rxcmd_req&lt;br&gt;Forced RXCMD at packet start / end" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="830" y="860" width="260" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="im" value="&lt;b&gt;Interrupt / Event Mask&lt;/b&gt;&lt;br&gt;USB IE Rising/Falling (0Dh/10h), IntStatus 13h, Latch 14h&lt;br&gt;Gates RXCMD triggers for VBUS / ID / HostDisconnect events (LineState changes always reported)&lt;br&gt;Drives ALT_INT" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="1180" y="860" width="260" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="lpm" value="&lt;b&gt;Clock / Reset / Low-Power Controller&lt;/b&gt;&lt;br&gt;RESETB: async assert, sync release -&gt; rst_n&lt;br&gt;SuspendM=0: enter low power (clock gated, DIR=1)&lt;br&gt;Wake on Link STP or USB event: restart clk60, wait PLL lock, DIR=0, send RXCMD&lt;br&gt;Clock-gate enable for CLKOUT" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="500" y="860" width="240" height="200" as="geometry"/>
+        </mxCell>
+
+        <!-- External digital blocks -->
+        <mxCell id="xtx" value="&lt;b&gt;TX Datapath&lt;/b&gt;&lt;br&gt;(TX holding reg, SYNC/PID mux, bit stuffer, NRZI, serializer + EOP)" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1580" y="110" width="280" height="180" as="geometry"/>
+        </mxCell>
+        <mxCell id="xreg" value="&lt;b&gt;ULPI Register File&lt;/b&gt;&lt;br&gt;(config + status registers)" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1580" y="340" width="280" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="xrx" value="&lt;b&gt;RX Datapath&lt;/b&gt;&lt;br&gt;(deserializer, NRZI decode, unstuff, EOP detect, elastic buffer)" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1580" y="620" width="280" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="xst" value="&lt;b&gt;Line State / Event Detector&lt;/b&gt;&lt;br&gt;+ OTG / VBUS control status" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1580" y="860" width="280" height="200" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="legend" value="Legend: blue = pad / IO, green = Link-to-PHY path (command, TX, register), yellow = PHY-to-Link path (RX, RXCMD, output), purple = support, grey dashed = blocks outside the ULPI Interface Controller. Config signals (SuspendM, OpMode, XcvrSelect, IE masks) come from the Register File over the config bus (not drawn). Encodings follow ULPI 1.1 - verify against the USB3320 datasheet." style="text;html=1;fontSize=11;align=left;verticalAlign=top;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="200" y="1170" width="1660" height="60" as="geometry"/>
+        </mxCell>
+
+        <!-- Edges: Link pins -->
+        <mxCell id="eSTP" value="STP" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=10;labelBackgroundColor=#ffffff;exitX=1;exitY=0.0952;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="link" target="a3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eDATA" value="DATA[7:0]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=classic;endArrow=classic;strokeWidth=3;fontSize=10;labelBackgroundColor=#ffffff;exitX=1;exitY=0.2976;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="link" target="a2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eDIR" value="DIR" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=10;labelBackgroundColor=#ffffff;exitX=0;exitY=0.2;exitDx=0;exitDy=0;entryX=1;entryY=0.6667;entryDx=0;entryDy=0;" edge="1" parent="1" source="a4" target="link"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eNXT" value="NXT" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=10;labelBackgroundColor=#ffffff;exitX=0;exitY=0.8;exitDx=0;exitDy=0;entryX=1;entryY=0.8095;entryDx=0;entryDy=0;" edge="1" parent="1" source="a4" target="link"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eCLK" value="CLKOUT" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=10;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.9464;entryDx=0;entryDy=0;" edge="1" parent="1" source="a1" target="link"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eSys" value="RESETB, PLL lock, SuspendM" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=9;labelBackgroundColor=#ffffff;exitX=1;exitY=0.4;exitDx=0;exitDy=0;entryX=0;entryY=0.8;entryDx=0;entryDy=0;" edge="1" parent="1" source="sysx" target="lpm"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- IO column internal -->
+        <mxCell id="eA2A3" value="data_in" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="a2" target="a3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eA4A2" value="data_out_q, oe_q" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=9;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="a4" target="a2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eLpmA1" value="clk_en" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=0;exitY=0.175;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="lpm" target="a1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- Link to PHY path -->
+        <mxCell id="eA3B1" value="data_in_q, stp_q" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.3889;entryDx=0;entryDy=0;" edge="1" parent="1" source="a3" target="b1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eB1B2" value="tx_start, tx_nopid, tx_pid[3:0], tx data" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=9;labelBackgroundColor=#ffffff;exitX=1;exitY=0.3333;exitDx=0;exitDy=0;entryX=0;entryY=0.3333;entryDx=0;entryDy=0;" edge="1" parent="1" source="b1" target="b2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eB1B3" value="reg_wr/rd/ext, addr[5:0]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=1;exitY=0.7778;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="b1" target="b3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eB2Tx" value="tx_valid, tx_data[7:0], tx_pid, tx_end / tx_ready" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=classic;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="b2" target="xtx"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eB3Reg" value="reg_addr, reg_wdata, wr/rd/ext / reg_rdata" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=classic;endArrow=classic;strokeWidth=2;fontSize=9;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="b3" target="xreg"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eB3C3" value="reg_rdata, rd_valid" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=0.25;exitY=1;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="b3" target="c3"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- Bus connections -->
+        <mxCell id="eB1Bus" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=classic;endArrow=classic;strokeWidth=2;dashed=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.1277;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="b1" target="bus"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eB2Bus" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;dashed=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.8617;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="b2" target="bus"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eB3Bus" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;dashed=1;exitX=0.7;exitY=1;exitDx=0;exitDy=0;entryX=0.5447;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="b3" target="bus"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eBusC1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;dashed=1;exitX=0.9362;exitY=1;exitDx=0;exitDy=0;entryX=0.769;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="bus" target="c1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eC4Bus" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=classic;endArrow=classic;strokeWidth=2;dashed=1;exitX=0.25;exitY=0;exitDx=0;exitDy=0;entryX=0.0638;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="c4" target="bus"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- PHY to Link path -->
+        <mxCell id="eRx2C1" value="rx_data[7:0], rx_valid, rx_start, rx_end, rx_error" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="xrx" target="c1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eC1C3" value="rx_byte, valid" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=0;exitY=0.25;exitDx=0;exitDy=0;entryX=1;entryY=0.25;entryDx=0;entryDy=0;" edge="1" parent="1" source="c1" target="c3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eC2C3" value="rxcmd_byte, rxcmd_req" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="c2" target="c3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eC3C4" value="byte, req_type" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=classic;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="c3" target="c4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eC4A4" value="data, dir, nxt, oe" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="c4" target="a4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eC4Lpm" value="lpm_req / wake" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;startArrow=classic;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="c4" target="lpm"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- Status path -->
+        <mxCell id="eStIm" value="VBUS / ID / HostDisc / ALT events" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=0;exitY=0.325;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="xst" target="im"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eImC2" value="rxcmd_trigger, alt_int" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.325;entryDx=0;entryDy=0;" edge="1" parent="1" source="im" target="c2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eStC2" value="LineState[1:0], VbusState[1:0], RxActive / RxError / HostDisc, ID" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=9;labelBackgroundColor=#ffffff;exitX=0;exitY=0.8;exitDx=0;exitDy=0;entryX=1;entryY=0.8;entryDx=0;entryDy=0;" edge="1" parent="1" source="xst" target="c2"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

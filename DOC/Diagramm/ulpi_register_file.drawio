@@ -1,0 +1,184 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="ULPI Register File" id="ulpireg1">
+    <mxGraphModel dx="1600" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2300" pageHeight="1650" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="title" value="&lt;b&gt;ULPI Register File - Detailed Block Diagram&lt;/b&gt;" style="text;html=1;fontSize=18;align=left;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="200" y="10" width="1500" height="40" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="cont" value="&lt;b&gt;ULPI REGISTER FILE&lt;/b&gt; (clk60 domain, VDD18)" style="rounded=0;whiteSpace=wrap;html=1;dashed=1;fillColor=none;strokeColor=#336699;strokeWidth=2;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=12;fontColor=#336699;" vertex="1" parent="1">
+          <mxGeometry x="200" y="60" width="1470" height="1450" as="geometry"/>
+        </mxCell>
+
+        <!-- External left -->
+        <mxCell id="xAcc" value="&lt;b&gt;ULPI Register Access FSM&lt;/b&gt;&lt;br&gt;(in ULPI Interface Controller)" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="20" y="110" width="150" height="790" as="geometry"/>
+        </mxCell>
+        <mxCell id="xStat" value="&lt;b&gt;Line State / Event Detector&lt;/b&gt;&lt;br&gt;+ OTG / VBUS status" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="20" y="1000" width="150" height="300" as="geometry"/>
+        </mxCell>
+
+        <!-- Access path column 1 -->
+        <mxCell id="p1" value="&lt;b&gt;Access Interface / Command Latch&lt;/b&gt;&lt;br&gt;From Access FSM: reg_addr[7:0], reg_wdata[7:0], reg_wr, reg_rd, reg_ext&lt;br&gt;Command registered on clk60, one operation at a time&lt;br&gt;Returns reg_rdata[7:0], rd_valid" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="240" y="110" width="240" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="p2" value="&lt;b&gt;Extended Address Pointer&lt;/b&gt;&lt;br&gt;Immediate access (reg_ext=0): addr = reg_addr[5:0]&lt;br&gt;Extended access (pointer 2Fh): ext_addr_q[7:0] latched from the ADDR byte, addr = ext_addr_q&lt;br&gt;Immediate map 00h-3Fh, extended map 00h-FFh" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="240" y="300" width="240" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="p3" value="&lt;b&gt;Address Decoder / Op Decode&lt;/b&gt;&lt;br&gt;base + 0 = WRITE (RD/WR)&lt;br&gt;base + 1 = SET (q OR wdata)&lt;br&gt;base + 2 = CLEAR (q AND NOT wdata)&lt;br&gt;One-hot wsel[] / rsel[] per register&lt;br&gt;Read-only or unmapped: write ignored, read returns 00h" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="240" y="490" width="240" height="170" as="geometry"/>
+        </mxCell>
+
+        <!-- Column 2 -->
+        <mxCell id="w1" value="&lt;b&gt;Write Strobe Generator&lt;/b&gt;&lt;br&gt;Write commits on reg_wr (after STP in the Access FSM)&lt;br&gt;wdata_eff = wdata AND write-mask (reserved bits forced 0)&lt;br&gt;Broadcasts wdata_eff, op[2:0] (WR / SET / CLR), wsel[] on the write bus&lt;br&gt;Each RW register applies WR / SET / CLR locally; RO registers ignore writes" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="540" y="490" width="240" height="170" as="geometry"/>
+        </mxCell>
+        <mxCell id="rm" value="&lt;b&gt;Read Mux / Read Control&lt;/b&gt;&lt;br&gt;Selects register q by rsel[] from the Q bus&lt;br&gt;Unmapped / reserved address returns 00h&lt;br&gt;rd_valid when data stable (1 clk)&lt;br&gt;Read side effect: clear-on-read pulse for USB Interrupt Latch (14h)&lt;br&gt;Returns reg_rdata[7:0] to the Access FSM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="540" y="700" width="240" height="200" as="geometry"/>
+        </mxCell>
+
+        <!-- Write bus -->
+        <mxCell id="wbar" value="WRITE BUS: wdata_eff[7:0], op[2:0], wsel[], wr_strobe" style="rounded=0;whiteSpace=wrap;html=1;horizontal=0;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="830" y="110" width="26" height="900" as="geometry"/>
+        </mxCell>
+
+        <!-- RW registers -->
+        <mxCell id="rf1" value="&lt;b&gt;Function Control&lt;/b&gt; 04h RD/WR | 05h SET | 06h CLR&lt;br&gt;[1:0] XcvrSelect (00 HS, 01 FS, 10 LS, 11 LS via FS preamble)&lt;br&gt;[2] TermSelect | [4:3] OpMode (00 normal, 01 non-driving, 10 no bit-stuff / NRZI)&lt;br&gt;[5] Reset (self-clearing) | [6] SuspendM (0 = low power) | [7] reserved&lt;br&gt;Reset value 45h" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="910" y="110" width="300" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="rf2" value="&lt;b&gt;Interface Control&lt;/b&gt; 07h RD/WR | 08h SET | 09h CLR&lt;br&gt;[0] FsLsSerialMode_6pin | [1] FsLsSerialMode_3pin | [2] CarkitMode&lt;br&gt;[3] ClockSuspendM | [4] AutoResume | [5] IndicatorComplement&lt;br&gt;[6] IndicatorPassThru | [7] InterfaceProtectDisable&lt;br&gt;Reset value 00h" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="910" y="250" width="300" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="rf3" value="&lt;b&gt;OTG Control&lt;/b&gt; 0Ah RD/WR | 0Bh SET | 0Ch CLR&lt;br&gt;[0] IdPullup | [1] DpPulldown | [2] DmPulldown | [3] DischrgVbus&lt;br&gt;[4] ChrgVbus | [5] DrvVbus | [6] DrvVbusExternal&lt;br&gt;[7] UseExternalVbusIndicator&lt;br&gt;Reset value 06h" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="910" y="390" width="300" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="rf4" value="&lt;b&gt;USB Interrupt Enable Rising&lt;/b&gt; 0Dh | 0Eh SET | 0Fh CLR&lt;br&gt;[0] HostDisconnect | [1] VbusValid | [2] SessValid | [3] SessEnd | [4] IdGnd | [7:5] reserved&lt;br&gt;Reset value 1Fh" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="910" y="530" width="300" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="rf5" value="&lt;b&gt;USB Interrupt Enable Falling&lt;/b&gt; 10h | 11h SET | 12h CLR&lt;br&gt;[0] HostDisconnect | [1] VbusValid | [2] SessValid | [3] SessEnd | [4] IdGnd | [7:5] reserved&lt;br&gt;Reset value 1Fh" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="910" y="650" width="300" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="rf6" value="&lt;b&gt;Scratch Register&lt;/b&gt; 16h | 17h SET | 18h CLR&lt;br&gt;8-bit RW test register, reset value 00h" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="910" y="770" width="300" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="rf7" value="&lt;b&gt;Carkit / Vendor-specific (optional)&lt;/b&gt;&lt;br&gt;Carkit Control 19h-1Bh, Carkit IE 1Dh-1Fh; vendor registers 30h-3Fh; extended map 00h-FFh via 2Fh pointer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="910" y="870" width="300" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- RO registers -->
+        <mxCell id="ro1" value="&lt;b&gt;Vendor ID / Product ID&lt;/b&gt; 00h VID Low, 01h VID High, 02h PID Low, 03h PID High - read-only constants (USB3320: 0424h / 0007h, verify)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="910" y="1040" width="300" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="ro2" value="&lt;b&gt;USB Interrupt Status&lt;/b&gt; 13h RO&lt;br&gt;[0] HostDisconnect | [1] VbusValid | [2] SessValid | [3] SessEnd | [4] IdGnd (live, synchronized)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="910" y="1125" width="300" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="ro3" value="&lt;b&gt;USB Interrupt Latch&lt;/b&gt; 14h RO, clear-on-read&lt;br&gt;Bits [4:0] set on an enabled rising / falling edge (IE Rising / IE Falling); cleared when read" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="910" y="1230" width="300" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="ro4" value="&lt;b&gt;Debug&lt;/b&gt; 15h RO&lt;br&gt;[0] LineState0 | [1] LineState1 (synchronized snapshot)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="910" y="1345" width="300" height="70" as="geometry"/>
+        </mxCell>
+
+        <!-- Status sync -->
+        <mxCell id="sync" value="&lt;b&gt;Status Input Sync + Edge Detect&lt;/b&gt;&lt;br&gt;2-FF synchronizers (clk60): hostdisc, vbusvalid, sessvalid, sessend, idgnd, linestate[1:0]&lt;br&gt;Optional glitch filter / debounce&lt;br&gt;Rising / falling edge detect per status bit&lt;br&gt;evt_rise[4:0], evt_fall[4:0] gated by IE Rising / Falling -&gt; latch set&lt;br&gt;Keeps sampling in low power" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="600" y="1040" width="180" height="380" as="geometry"/>
+        </mxCell>
+
+        <!-- Q bus -->
+        <mxCell id="qbar" value="REGISTER Q BUS: q values of all registers (feeds Read Mux and Config Output)" style="rounded=0;whiteSpace=wrap;html=1;horizontal=0;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="1260" y="110" width="26" height="1366" as="geometry"/>
+        </mxCell>
+        <mxCell id="qbarb" value="Q BUS (to Read Mux)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="540" y="1450" width="746" height="26" as="geometry"/>
+        </mxCell>
+
+        <!-- Config output -->
+        <mxCell id="cfg" value="&lt;b&gt;Config Output Interface&lt;/b&gt;&lt;br&gt;Static config outputs derived from register Q values&lt;br&gt;Glitch-free, registered on clk60; reset values held until reset is released&lt;br&gt;soft_reset pulse generated from the self-clearing Reset bit (FuncCtrl[5])" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;arcSize=4;verticalAlign=top;align=left;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="1340" y="110" width="260" height="650" as="geometry"/>
+        </mxCell>
+
+        <!-- External right consumers -->
+        <mxCell id="cMode" value="&lt;b&gt;Mode / Termination Control&lt;/b&gt;&lt;br&gt;(PHY core)" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1800" y="110" width="260" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="cUif" value="&lt;b&gt;ULPI Interface Controller&lt;/b&gt;&lt;br&gt;(low-power / clock control)" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1800" y="250" width="260" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="cOtg" value="&lt;b&gt;OTG / VBUS Control&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1800" y="390" width="260" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="cIm" value="&lt;b&gt;Interrupt / Event Mask&lt;/b&gt;&lt;br&gt;(RXCMD trigger gating)" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1800" y="590" width="260" height="100" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="legend" value="Legend: blue = access path, green = write path / status sync, yellow = read path / outputs, purple = RW registers, orange = RO registers, grey dashed = blocks outside the Register File. Addresses, bit positions and reset values follow ULPI 1.1 (vendor registers and ID values for USB3320 - verify against the datasheet). Global: clk60, rst_n (async assert, sync release); contents retained in low power; writes accepted only while clk60 runs." style="text;html=1;fontSize=11;align=left;verticalAlign=top;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="200" y="1530" width="1860" height="60" as="geometry"/>
+        </mxCell>
+
+        <!-- Access path edges -->
+        <mxCell id="eAccP1" value="reg cmd" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=9;labelBackgroundColor=#ffffff;exitX=1;exitY=0.0949;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="xAcc" target="p1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eRm2Acc" value="reg_rdata[7:0], rd_valid" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=9;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.8734;entryDx=0;entryDy=0;" edge="1" parent="1" source="rm" target="xAcc"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eP1P2" value="addr, ext, wdata" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="p1" target="p2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eP2P3" value="eff_addr, wdata, wr/rd" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="p2" target="p3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eP3W1" value="wsel, op, wr" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="p3" target="w1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eP3Rm" value="rsel, rd" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=1;exitY=0.882;exitDx=0;exitDy=0;entryX=0;entryY=0.3;entryDx=0;entryDy=0;" edge="1" parent="1" source="p3" target="rm"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- Write bus -->
+        <mxCell id="eW1Bar" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5167;entryDx=0;entryDy=0;" edge="1" parent="1" source="w1" target="wbar"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eWb1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;exitX=1;exitY=0.0667;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="wbar" target="rf1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eWb2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;exitX=1;exitY=0.2222;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="wbar" target="rf2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eWb3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;exitX=1;exitY=0.3778;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="wbar" target="rf3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eWb4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;exitX=1;exitY=0.5222;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="wbar" target="rf4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eWb5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;exitX=1;exitY=0.6556;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="wbar" target="rf5"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eWb6" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;exitX=1;exitY=0.7778;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="wbar" target="rf6"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eWb7" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;exitX=1;exitY=0.8889;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="wbar" target="rf7"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- Registers to Q bus -->
+        <mxCell id="eQ1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.0439;entryDx=0;entryDy=0;" edge="1" parent="1" source="rf1" target="qbar"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eQ2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.1464;entryDx=0;entryDy=0;" edge="1" parent="1" source="rf2" target="qbar"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eQ3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.2489;entryDx=0;entryDy=0;" edge="1" parent="1" source="rf3" target="qbar"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eQ4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.3441;entryDx=0;entryDy=0;" edge="1" parent="1" source="rf4" target="qbar"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eQ5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.4319;entryDx=0;entryDy=0;" edge="1" parent="1" source="rf5" target="qbar"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eQ6" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5124;entryDx=0;entryDy=0;" edge="1" parent="1" source="rf6" target="qbar"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eQ7" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5857;entryDx=0;entryDy=0;" edge="1" parent="1" source="rf7" target="qbar"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eQ8" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.7064;entryDx=0;entryDy=0;" edge="1" parent="1" source="ro1" target="qbar"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eQ9" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.776;entryDx=0;entryDy=0;" edge="1" parent="1" source="ro2" target="qbar"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eQ10" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.8565;entryDx=0;entryDy=0;" edge="1" parent="1" source="ro3" target="qbar"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eQ11" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.9297;entryDx=0;entryDy=0;" edge="1" parent="1" source="ro4" target="qbar"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- Q bus to Read Mux -->
+        <mxCell id="eQbRm" value="q values" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=0.0268;exitY=0;exitDx=0;exitDy=0;entryX=0.0833;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="qbarb" target="rm"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- Q bus to config output -->
+        <mxCell id="eC1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;exitX=1;exitY=0.0439;exitDx=0;exitDy=0;entryX=0;entryY=0.0923;entryDx=0;entryDy=0;" edge="1" parent="1" source="qbar" target="cfg"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eC2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;exitX=1;exitY=0.1464;exitDx=0;exitDy=0;entryX=0;entryY=0.3077;entryDx=0;entryDy=0;" edge="1" parent="1" source="qbar" target="cfg"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eC3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;exitX=1;exitY=0.2489;exitDx=0;exitDy=0;entryX=0;entryY=0.5231;entryDx=0;entryDy=0;" edge="1" parent="1" source="qbar" target="cfg"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eC4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;exitX=1;exitY=0.388;exitDx=0;exitDy=0;entryX=0;entryY=0.8154;entryDx=0;entryDy=0;" edge="1" parent="1" source="qbar" target="cfg"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- Config to consumers -->
+        <mxCell id="eD1" value="xcvrselect, termselect, opmode, suspendm, soft_reset" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=1;exitY=0.0923;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="cfg" target="cMode"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eD2" value="clocksuspendm, autoresume, protect_dis, carkit, serial_mode" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=1;exitY=0.3077;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="cfg" target="cUif"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eD3" value="idpullup, dp/dm_pulldown, dischrg/chrg/drv_vbus, ext_vbus" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5231;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="cfg" target="cOtg"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eD4" value="ie_rise[4:0], ie_fall[4:0]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=1;exitY=0.8154;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="cfg" target="cIm"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- Status path -->
+        <mxCell id="eStSync" value="hostdisc, vbusvalid, sessvalid, sessend, idgnd, linestate[1:0]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=9;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.2895;entryDx=0;entryDy=0;" edge="1" parent="1" source="xStat" target="sync"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eSyRo2" value="status[4:0]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=1;exitY=0.3421;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="sync" target="ro2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eSyRo3" value="latch_set[4:0]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=1;exitY=0.6842;exitDx=0;exitDy=0;entryX=0;entryY=0.7;entryDx=0;entryDy=0;" edge="1" parent="1" source="sync" target="ro3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eSyRo4" value="linestate[1:0]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=8;labelBackgroundColor=#ffffff;exitX=1;exitY=0.8947;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="sync" target="ro4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="eClr" value="clr_on_read (14h)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;dashed=1;fontSize=8;labelBackgroundColor=#ffffff;exitX=0.667;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.2;entryDx=0;entryDy=0;" edge="1" parent="1" source="rm" target="ro3">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="700" y="1025"/>
+              <mxPoint x="880" y="1025"/>
+              <mxPoint x="880" y="1250"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
