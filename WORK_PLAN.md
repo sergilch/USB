@@ -18,7 +18,7 @@
 
 ### 2.1 Already implemented
 
-These blocks exist in RTL. All twelve testbenches (nine unit, three integration) pass with Icarus Verilog.
+These blocks exist in RTL. All 21 testbenches pass with Icarus Verilog.
 
 | Diagram block | RTL module(s) | Status |
 |---|---|---|
@@ -34,13 +34,17 @@ These blocks exist in RTL. All twelve testbenches (nine unit, three integration)
 | SYNC + PID/Data Mux | `usb_tx_sync_mux` | Done, unit-tested (added 2026-11-08) |
 | NRZI Encoder | `usb_nrzi_encoder` | Done, unit-tested (added 2026-11-08) |
 | TX path wrapper (stuffer → NRZI → serializer, underrun discard) | `usb_tx_path` | Done, unit-tested (added 2026-11-08) |
+| RX front ends (HS capture on the recovered clock, FS/LS DPLL) | `usb_rx_hs_frontend`, `usb_rx_fsls_frontend` | Done, unit-tested (added 2026-11-08) |
+| NRZI Decoder, SYNC Detect, Bit Unstuffer, Deserializer 1:8, EOP + RxError Check | `usb_rx_nrzi_decoder`, `usb_rx_sync_detect`, `usb_rx_bit_unstuffer`, `usb_rx_deserializer`, `usb_rx_eop_check`, wrapper `usb_rx_decoder` | Done, unit-tested (added 2026-11-08) |
+| Elastic Buffer (CDC) | `usb_rx_elastic_buffer` | Done, unit-tested (added 2026-11-08) |
+| RX datapath wrapper | `usb_rx_datapath` | Done; `tb_usb_rx_datapath` (TX → RX loopback) passes |
 | Interconnect | `usb_tx_datapath`, `usb_ulpi_core`, `usb_ulpi_phy_if`, `usb_ulpi_phy_top` | Done; `tb_usb_ulpi_tx_top`, `tb_usb_ulpi_core`, `tb_usb_ulpi_phy_if` pass |
 
 ### 2.2 Missing or incomplete
 
 | Diagram block | What is missing |
 |---|---|
-| RX datapath | Nothing is implemented: SYNC detect/deserializer, NRZI decoder, bit unstuffer, EOP detect/RxError, elastic buffer. `usb_ulpi_rx_path` currently expects `rx_start / rx_valid / rx_data / rx_end / rx_error` from the top-level ports. |
+| RX datapath integration | `usb_rx_datapath` (done, see 2.1) is not instantiated in `usb_ulpi_phy_top` yet, which still takes `rx_*` as top-level ports. Planned for Phase 8.1. |
 | Line State / Event Detector | Not implemented. `linestate` and `host_disc` are top-level inputs. |
 | Mode / Termination Control | Not implemented. XcvrSelect / TermSelect / OpMode are only exported; there are no pull-up, termination or pull-down outputs. OpMode `01`/`11` have no effect. |
 | HS Handshake / Chirp support | Not implemented. `sync_dis` is tied to `0` in `usb_ulpi_phy_top`. |
@@ -98,7 +102,9 @@ Size: **S** ≈ one small module + testbench, **M** ≈ a few modules or one com
 
 **Done when:** all nine existing testbenches pass.
 
-### Phase 2 — RX datapath (L)
+### Phase 2 — RX datapath (L) — ✅ done 2026-11-08
+
+Decisions D1 and D2 were taken as recommended, as working assumptions to be confirmed with the analog team: the HS bit chain runs on the CDR's recovered clock `clk_rx` (the CDR is assumed to free-run while there is no signal), and FS/LS data is recovered by a DPLL on `clk_bit`. Only `usb_rx_hs_frontend` depends on D1. Deviation from the diagram: SYNC detection is a separate stage between the NRZI decoder and the unstuffer (`usb_rx_sync_detect`), because the unstuffer must know where SYNC ends. The HS receiver only rearms SYNC detection when it goes inactive (squelch), so packets need an idle gap long enough for the squelch detector. Not done from the list below: babble detection.
 
 The chain from the diagram, with the interface to `usb_ulpi_rx_path` that already exists (`rx_start`, `rx_valid`/`rx_data`, `rx_end`, `rx_error`).
 
@@ -212,7 +218,7 @@ Phase 0 ─┐
 | Milestone | Content | Exit criterion |
 |---|---|---|
 | **M1 — TX complete** | Phases 0 + 1 | All TBs pass via `make test`; lint clean. Phase 1 done: all twelve TBs pass; Phase 0 still open. |
-| **M2 — Data loopback** | Phase 2 | TX → RX loopback passes for HS/FS/LS with jitter, ppm offset and injected errors. |
+| **M2 — Data loopback** | Phase 2 | TX → RX loopback passes for HS/FS/LS with jitter, ppm offset and injected errors. ✅ Reached 2026-11-08 (`tb_usb_rx_datapath`; ppm offset, lost SYNC bits, D+/D− skew and injected errors; bit-level jitter is left to the analog CDR). |
 | **M3 — Enumerable PHY** | Phases 3 + 4 + core of 5 (reset, `ce60`, soft reset) | The system TB runs attach → HS handshake → HS traffic → reset. |
 | **M4 — Feature complete** | Rest of Phase 5, Phases 6 + 7 + 8.1 | Low-power mode, test modes, trim registers and the full top level, verified in the system TB. |
 | **M5 — Implementation ready** | Phase 8 complete + Phase 9 | All scenarios pass; constraints, CDC review and synthesis results done; documentation updated. |

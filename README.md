@@ -1,8 +1,8 @@
 # USB 2.0 ULPI PHY — Digital Side (Verilog)
 
-The digital, PHY-side ULPI logic of a USB 2.0 transceiver (High-Speed, Full-Speed and Low-Speed), written in synthesizable Verilog-2005. It covers the ULPI pin interface, the ULPI register file, and the TX path (holding FIFO, SYNC/PID, bit stuffing, NRZI and serialization with EOP generation). It also contains the RX-side ULPI blocks (RX data FIFO, RXCMD generation and output arbitration).
+The digital, PHY-side ULPI logic of a USB 2.0 transceiver (High-Speed, Full-Speed and Low-Speed), written in synthesizable Verilog-2005. It covers the ULPI pin interface, the ULPI register file, the TX path (holding FIFO, SYNC/PID, bit stuffing, NRZI and serialization with EOP generation), the RX datapath (clock/data recovery interface, NRZI decoding, SYNC detection, unstuffing, deserialization, EOP and error checking, elastic buffer) and the RX-side ULPI blocks (RX data FIFO, RXCMD generation and output arbitration).
 
-The analog front end, the line-state, VBUS and ID detectors, and the RX datapath that recovers data from the line are **not** part of this repository.
+The analog front end and the line-state, VBUS and ID detectors are **not** part of this repository.
 
 > **Status:** work in progress. See [Project status](#project-status).
 
@@ -16,6 +16,11 @@ The analog front end, the line-state, VBUS and ID detectors, and the RX datapath
   - HS EOP is 8 bit times at the inverted level. FS/LS EOP is SE0 for 2 bits, then J.
   - HS underrun detection (`tx_underrun`).
   - OpMode `10` bypass (no bit stuffing, no NRZI) for chirp and test modes.
+- **RX datapath:** NRZI decoder → SYNC detect → bit unstuffer → deserializer 1:8 → EOP / RxError check → elastic buffer.
+  - HS on the clock recovered by the CDR, with an asynchronous elastic buffer into the local clock domain; tolerates lost SYNC bits (12-bit minimum SYNC) and ±1000 ppm.
+  - FS/LS recovered digitally by a DPLL that oversamples D+/D− 40× / 320× on the 480 MHz clock; tolerates the FS ±0.25 % and LS ±1.5 % clock limits and D+/D− skew.
+  - Errors: bit-stuff violation, EOP not on a byte boundary, signal lost before the EOP, buffer overflow → `rx_error`.
+  - No reception of the PHY's own packets (local-TX hold-off).
 - **RX-side ULPI:** RX data FIFO with overrun detection, RxActive/RxError, and RXCMD generation on line-state, VBUS, ID and interrupt changes.
 - **Interlocks** keep TX packets and register transfers from interfering with each other on the shared ULPI bus.
 
@@ -83,6 +88,14 @@ Every testbench checks its own results and ends with `TEST PASSED`, `TEST FAILED
 | `tb_usb_ulpi_input_capture.v` | `usb_ulpi_input_capture.v`                           |
 | `tb_usb_ulpi_bus_owner.v`     | `usb_ulpi_bus_owner.v`                               |
 | `tb_usb_ulpi_reg_file.v`      | `usb_ulpi_reg_file.v`                                |
+| `tb_usb_rx_nrzi_decoder.v`    | `usb_rx_nrzi_decoder.v`                              |
+| `tb_usb_rx_sync_detect.v`     | `usb_rx_sync_detect.v`                               |
+| `tb_usb_rx_bit_unstuffer.v`   | `usb_rx_bit_unstuffer.v`                             |
+| `tb_usb_rx_deserializer.v`    | `usb_rx_deserializer.v`                              |
+| `tb_usb_rx_eop_check.v`       | `usb_rx_eop_check.v`                                 |
+| `tb_usb_rx_elastic_buffer.v`  | `usb_rx_elastic_buffer.v`                            |
+| `tb_usb_rx_fsls_frontend.v`   | `usb_rx_fsls_frontend.v`                             |
+| `tb_usb_rx_hs_frontend.v`     | `usb_rx_hs_frontend.v`                               |
 
 To run all the unit testbenches:
 
@@ -97,16 +110,24 @@ run tx_holding         usb_ulpi_input_capture.v usb_tx_holding.v
 run ulpi_input_capture usb_ulpi_input_capture.v
 run ulpi_bus_owner     usb_ulpi_bus_owner.v
 run ulpi_reg_file      usb_ulpi_reg_file.v
+for m in nrzi_decoder sync_detect bit_unstuffer deserializer eop_check elastic_buffer fsls_frontend hs_frontend; do
+  run rx_$m usb_rx_$m.v
+done
 ```
 
 ### Integration testbenches
 
-`tb_usb_ulpi_tx_top`, `tb_usb_ulpi_core` and `tb_usb_ulpi_phy_if`, from smallest to largest. They model a ULPI Link at the pins. The model holds each byte until NXT, retries commands that lose to DIR, and flags protocol errors. The testbenches check register contents against a shadow model and rebuild every transmitted packet from `txd` / `tx_en` / `tx_se0` (de-NRZI, de-stuff, EOP timing). Copy their file lists from the testbench headers.
+`tb_usb_ulpi_tx_top`, `tb_usb_ulpi_core` and `tb_usb_ulpi_phy_if`, from smallest to largest. They model a ULPI Link at the pins. The model holds each byte until NXT, retries commands that lose to DIR, and flags protocol errors. The testbenches check register contents against a shadow model and rebuild every transmitted packet from `txd` / `tx_en` / `tx_se0` (de-NRZI, de-stuff, EOP timing). 
+
+`tb_usb_rx_datapath` is the top-level RX testbench, a TX→RX loopback. A far-end `usb_tx_path` on its own clock (ppm offset) sends packets through a line model: for HS an ideal CDR with squelch / lock acquisition that drops 2–20 SYNC bits and noise between packets, for FS/LS D+/D− with skew. A raw symbol generator injects protocol errors. Every received packet is compared with the one sent, and `usb_ulpi_rx_handler` behind the DUT must forward exactly the same bytes.
+
+Copy the integration testbenches' file lists from their headers.
 
 ## Project status
 
-- ✅ The TX path is complete. All nine unit testbenches and all three integration testbenches pass with Icarus Verilog.
-- ⏳ The RX datapath, line-state detection, mode/termination control, OTG/VBUS control, clock/reset/power management and the AFE interface are still to be written. See [WORK_PLAN.md](WORK_PLAN.md).
+- ✅ The TX path and the RX datapath are complete. All 21 testbenches pass with Icarus Verilog.
+- ⏳ The RX datapath is not wired into `usb_ulpi_phy_top` yet; that happens with the full top level.
+- ⏳ Line-state detection, mode/termination control, OTG/VBUS control, clock/reset/power management and the AFE interface are still to be written. See [WORK_PLAN.md](WORK_PLAN.md).
 - ⏳ Not implemented yet. These signals are exported, but no logic reacts to them:
   - OpMode `01` / `11` (driver disable)
   - `soft_reset`
@@ -119,7 +140,8 @@ All files are in the repository root:
 
 - `usb_*.v`: RTL modules
 - `tb_usb_*.v`: self-checking testbenches
-- `DOC/`: reference documentation (ULPI 1.1 specification, USB3300 datasheet)
+- `DOC/`: reference documentation (ULPI 1.1 specification, USB3300 datasheet) and the block diagrams (`DOC/Diagramm/`)
+- `WORK_PLAN.md`: development plan for the complete digital section
 
 ## References
 
