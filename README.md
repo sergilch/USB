@@ -141,14 +141,17 @@ The analog front end is not part of this repository, but its behaviour is modell
 
 Their testbenches: `tb_afe_line` (USB 2.0 levels: HS 400 mV, chirp 800 mV, SE0, FS / LS idle, rise times), `tb_afe_hs_rx` (receiver, squelch, disconnect), `tb_afe_cdr` (CDR lock time and tracking statistics) and `tb_afe_hs_chain` (the full HS receive chain into two `usb_rx_datapath` instances with `HS_ZMIN` 6 / 4, packets with shortened SYNC as behind hubs, checked with the Link's PID and CRC16 checks).
 
+`tb_usb_afe_tx_if` (phase A2) runs the TX path into the analog TX boundary `usb_afe_tx_if` and on through `afe_hs_tx_bm`, `afe_fsls_bm`, terminations and the line model. It checks the AFE pins cycle by cycle against a reference model (`TX_EN` lead / lag, driver select, idle clamp, reset values), the line levels and polarity at HS / FS / LS, and decodes every packet from the line again. A lead sweep shows which `TX_LEAD` puts the whole SYNC on the line for a given driver settling time.
+
 Copy the integration testbenches' file lists from their headers.
 
 ## Project status
 
-- ✅ The TX path and the RX datapath are complete. All 26 testbenches (22 for the RTL, 4 for the AFE behavioural models) pass with Icarus Verilog.
+- ✅ The TX path and the RX datapath are complete. All 27 testbenches (23 for the RTL, 4 for the AFE behavioural models) pass with Icarus Verilog.
+- ✅ TX data boundary to the AFE (`usb_afe_tx_if`: retiming, HS / FS / LS driver select, `TX_EN` lead / lag, idle clamp), verified through the AFE models; not wired into the top level yet.
 - ✅ Pad wrapper `usb_ulpi_phy_pads` (BBSUD8F cells), verified for register access at the pins.
 - ⏳ The RX datapath is not wired into `usb_ulpi_phy_top` yet; that happens with the full top level.
-- ⏳ Line-state detection, mode/termination control, OTG/VBUS control, clock/reset/power management and the AFE interface are still to be written. See [WORK_PLAN.md](WORK_PLAN.md).
+- ⏳ Line-state detection, mode/termination control, OTG/VBUS control, clock/reset/power management and the RX side of the AFE interface are still to be written. See [WORK_PLAN.md](WORK_PLAN.md).
 - ⏳ Not implemented yet. These signals are exported, but no logic reacts to them:
   - OpMode `01` / `11` (driver disable)
   - `soft_reset`

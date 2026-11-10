@@ -78,7 +78,7 @@ Direction is seen from the digital core. "Reset" is the value while the digital 
 | Digital signal | Analog pin | Dir | Function | Reset / Isolated | Status |
 |---|---|---|---|---|---|
 | `fs_oe` | `FS_OE_A` | out | FS/LS drivers on | 0 / 0 | Proposed |
-| `fs_dat` | `FS_DAT_A` | out | 1 = J at the current speed (the digital applies the LS inversion) | 1 / 1 | Proposed |
+| `fs_dat` | `FS_DAT_A` | out | 1 = J at the current speed; the driver maps J to DP high (FS) or DM high (`fs_ls` = 1), as in `afe_fsls_bm` | 1 / 1 | Proposed |
 | `fs_se0` | `FS_SE0_A` | out | Drive SE0 (overrides `fs_dat`) | 0 / 0 | Proposed |
 | `fs_ls` | `FS_LS_A` | out | 1 = LS slew rate (75–300 ns), 0 = FS (4–20 ns) | 0 / 0 | Proposed |
 | `rxrcv` | `RXRCV_A` | in | Differential receiver, 1 = DP > DM | — / 1 | Fixed (RTL) |
@@ -114,13 +114,17 @@ Direction is seen from the digital core. "Reset" is the value while the digital 
 
 | Parameter | Value | Status |
 |---|---|---|
-| `TX_IN_P/N` change | On the rising `clk_bit` edge + clock-to-Q (0.3–1.2 ns over corners, section 7.2) | Fixed |
+| `TX_IN_P/N` change | On the rising `clk_bit` edge + clock-to-Q (0.3–1.2 ns over corners, section 7.2); `TX_IN_P` and `TX_IN_N` come from two separate flops (`usb_afe_tx_if`) | Fixed |
 | P/N skew at the TX input pins | ≤ 50 ps (Proposed; to be checked against the TX's tolerance) | TBC |
-| `TX_EN` lead before the first SYNC bit | `TX_LEAD` bit times, programmable 0–31, default from the TX enable time (Q4) | Proposed |
-| `TX_EN` lag after the last EOP bit | `TX_LAG` bit times, programmable 0–7 | Proposed |
+| `TX_EN` lead before the first SYNC bit | `TX_LEAD` bit times, programmable 0–31, default from the TX enable time (Q4). `TX_IN_P/N` show J during the lead. | Proposed |
+| `TX_EN` lag after the last EOP bit | `TX_LAG` bit times, programmable 0–7. `TX_IN_P/N` hold the EOP level during the lag, so the line EOP is 8 + `TX_LAG` bits (receivers take any bit-stuff error as EOP). | Proposed |
 | Output delay `TX_IN` → `TX_OUT` | constant, any value, its variation over corners needed for the USB TX start-delay budget | TBC (Q4) |
 
-The digital implements the lead by delaying the data path by `TX_LEAD` bits in a shift register on `clk_bit`. This adds `TX_LEAD` bit times to the PHY's TX start delay, which must be checked against the ULPI 1.1 / USB 2.0 budget once the defaults are known.
+The digital implements the lead by delaying the data path by `TX_LEAD` bits in a shift register on `clk_bit` (`usb_afe_tx_if`, phase A2). Latency from the serializer to the pins: data `TX_LEAD` + 3 bit times, `TX_EN` rise 3, `TX_EN` fall `TX_LEAD` + 3 + `TX_LAG`. This adds `TX_LEAD` + 3 bit times to the PHY's TX start delay, which must be checked against the ULPI 1.1 / USB 2.0 budget once the defaults are known. `TX_LEAD` + `TX_LAG` + 3 must stay below the inter-packet gap (≥ 88 bit times), otherwise `TX_EN` stays on across the gap; the ranges above guarantee that. New values are taken over only while the TX is idle.
+
+**Default from the A2 simulation** (`tb_usb_afe_tx_if`, `afe_hs_tx_bm` with `T_EN` = 20 ns, line sampled 1.0 ns after each `clk_bit` edge): the whole SYNC reaches the line when `TX_LEAD` · 2.083 ns ≥ `T_EN`, i.e. `TX_LEAD` = ⌈`T_EN` / bit time⌉ = 10; then the line shows less than one bit of J before SYNC. Each bit of lead less loses one SYNC bit (lead 0: 10 bits lost, which eats into the receivers' SYNC budget behind hubs, section 4.2); each bit more adds one bit of J before SYNC. So the default is ⌈`T_EN` / 2.083 ns⌉ with `T_EN` the worst-corner value from Q4.
+
+Idle clamp: `drv_dis` (non-driving OpMode) or `iso_en`, registered once in the digital, sets `TX_IN_P` = 1, `TX_IN_N` = 0, `TX_EN` = 0 and the FS/LS controls to their idle values on the second `clk_bit` edge, and drops the rest of a packet in progress (it never resumes in the middle).
 
 ### 4.2 HS receive: SYNC budget and lock
 
@@ -219,6 +223,7 @@ Flip-flop overhead (DFRQJIHDX1, light load): clock-to-Q 0.23–0.39 ns fast, 0.3
 | `usb_rx_elastic_buffer` (write side) | yes (`clk_rx`) | 2.98 ns | 1.58 ns | fails both |
 | `usb_rx_hs_frontend` | yes | 0.30 ns | 0.14 ns | passes |
 | `usb_tx_serializer` | shift / bit counter yes, inputs are 8-cycle multicycle paths | 3.00 ns (path type not separated) | 1.46 ns | needs real STA with multicycle constraints |
+| `usb_afe_tx_if` (A2) | yes (`clk_bit`), every path flop → ≤ 2 gates → flop after the A2 restructuring | 1.49 ns | 0.77 ns | fails slow, passes typ |
 | `usb_bit_stuffer`, `usb_nrzi_encoder` | no: byte-wide on `ce60`, 8-cycle multicycle (16.7 ns) | 4.39 / 3.00 ns | 2.25 / 1.40 ns | pass as multicycle paths |
 
 **Conclusion:** the HS receive bit chain does not run at 480 MHz on xh018 at the slow corner, and only marginally at typical. This makes I12 (Q12) a required decision rather than an option. Either:

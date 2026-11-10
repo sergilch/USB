@@ -186,7 +186,7 @@ The boundary to the existing analog blocks (pin mapping, `TX_EN` lead / lag, dig
 
 | ID | Task |
 |---|---|
-| 6.1 | **TX data boundary**: retiming flops for `txd`, `tx_en`, `tx_se0`, driver-mode decode from `tx_speed`, clamped to idle when TX is disabled or isolated. |
+| 6.1 | **TX data boundary**: retiming flops for `txd`, `tx_en`, `tx_se0`, driver-mode decode from `tx_speed`, clamped to idle when TX is disabled or isolated. ✅ 2026-11-10: `usb_afe_tx_if` (AFE plan A2), with the `TX_EN` lead / lag and the FS/LS driver controls; `tx_lead` / `tx_lag` / `drv_dis` / `iso_en` are ports until 6.4, 5.4 and the OpMode logic drive them. Not wired into the top level yet (8.1). |
 | 6.2 | **RX data capture / clock buffer**: capture flops for `rxd` on the recovered clock, data gated until CDR lock (`rx_valid_lock`). |
 | 6.3 | **Termination / pull outputs**: output registers for the Phase 3 controls, safe reset defaults. |
 | 6.4 | **Trim / enable register block**: a config-bus slave reached through the ULPI extended or vendor register map (e.g. 30h–3Fh or the extended map via 2Fh). Holds trims for HS driver current, HS termination, squelch/disconnect thresholds, VBUS comparator thresholds, PLL/CDR bias and LDO; uses shadow registers with an update strobe and safe reset defaults. The register map must be agreed with the analog team. |
