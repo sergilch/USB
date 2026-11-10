@@ -138,6 +138,7 @@ The analog front end is not part of this repository, but its behaviour is modell
 | `afe_squelch_bm` | Squelch (125 mV) and HS disconnect (575 mV) detectors with response times |
 | `afe_cdr_bm` | Bang-bang (Alexander) CDR: free-running VCO with ppm offset, phase steps, sampling ambiguity, retimed data output |
 | `afe_fsls_bm` | FS / LS drivers with slew-rate ramps, single-ended and differential receivers |
+| `afe_pll_bm` | PLL lower loop, frequency only: settling time constant, VCO range, frequency-error and dead-clock injection |
 
 Their testbenches: `tb_afe_line` (USB 2.0 levels: HS 400 mV, chirp 800 mV, SE0, FS / LS idle, rise times), `tb_afe_hs_rx` (receiver, squelch, disconnect), `tb_afe_cdr` (CDR lock time and tracking statistics) and `tb_afe_hs_chain` (the full HS receive chain into two `usb_rx_datapath` instances with `HS_ZMIN` 6 / 4, packets with shortened SYNC as behind hubs, checked with the Link's PID and CRC16 checks).
 
@@ -145,16 +146,19 @@ Their testbenches: `tb_afe_line` (USB 2.0 levels: HS 400 mV, chirp 800 mV, SE0, 
 
 `tb_usb_afe_rx_if` (phase A3) drives HS packets from a far transmitter through the line, the HS receiver and squelch models and either an ideal or the bang-bang CDR model into six `usb_afe_rx_if` + `usb_rx_datapath` pairs with different SYNC thresholds, lock delays and squelch compensation. It checks the boundary pins against a reference model and measures how many wrong bits the CDR may deliver at the start of a 12-bit SYNC, and how slow the squelch detector may be.
 
+`tb_usb_pll_lock_det` (phase A4) runs the lock detector and the CLKOUT generator on the clock of a PLL model: lock time after enable, loss of lock on a frequency error, a missing reference or a dead VCO, the REFSEL settings, and the CLKOUT pulse shape and its glitch-free stop / start.
+
 Copy the integration testbenches' file lists from their headers.
 
 ## Project status
 
-- ✅ The TX path and the RX datapath are complete. All 28 testbenches (24 for the RTL, 4 for the AFE behavioural models) pass with Icarus Verilog.
+- ✅ The TX path and the RX datapath are complete. All 29 testbenches (25 for the RTL, 4 for the AFE behavioural models) pass with Icarus Verilog.
 - ✅ TX data boundary to the AFE (`usb_afe_tx_if`: retiming, HS / FS / LS driver select, `TX_EN` lead / lag, idle clamp), verified through the AFE models; not wired into the top level yet.
 - ✅ HS receive boundary to the AFE (`usb_afe_rx_if`: RX / CDR enables, isolation, squelch-based CDR lock, squelch-latency compensation), with the lock-time margin measured through the AFE models; not wired into the top level yet.
+- ✅ Clocking: `ce60` / CLKOUT generator (`usb_clk_gen`, glitch-free start / stop) and the digital PLL lock detector (`usb_pll_lock_det`, REFSEL decode, loss-of-lock and dead-clock detection), verified with a PLL model; not wired into the top level yet.
 - ✅ Pad wrapper `usb_ulpi_phy_pads` (BBSUD8F cells), verified for register access at the pins.
 - ⏳ The RX datapath is not wired into `usb_ulpi_phy_top` yet; that happens with the full top level.
-- ⏳ Line-state detection, mode/termination control, OTG/VBUS control, clock/reset/power management and the PLL / clocking side of the AFE interface are still to be written. See [WORK_PLAN.md](WORK_PLAN.md).
+- ⏳ Line-state detection, mode/termination control, OTG/VBUS control, clock/reset/power management and the power sequencer (PLL / CDR enables) are still to be written. See [WORK_PLAN.md](WORK_PLAN.md).
 - ⏳ Not implemented yet. These signals are exported, but no logic reacts to them:
   - OpMode `01` / `11` (driver disable)
   - `soft_reset`

@@ -70,8 +70,8 @@ Direction is seen from the digital core. "Reset" is the value while the digital 
 | Digital signal | Analog pin | Dir | Function | Reset / Isolated | Status |
 |---|---|---|---|---|---|
 | `pll_en` | `PLL_EN` (**New**) | out | PLL on | 0 / 0 | Proposed |
-| `refsel[1:0]` | `REFSEL` (**New**, only if the divider is made programmable) | out | Feedback divider select | 01 = 24 MHz / 01 | TBC (Q6) |
-| `pll_lock` | — (digital lock detector, section 4.3) | internal | 1 = `clk_bit` within ±0.1 % of 20 × `ref_dig` | 0 | Proposed |
+| `refsel[1:0]` | `REFSEL` (**New**, only if the divider is made programmable) | out | Feedback divider select: 00 = 19.2 MHz (÷25), 01 = 24 MHz (÷20), 10 = 26 MHz (fractional, not supported by an integer divider), 11 reserved. The digital decodes it into `fb_div[4:0]` and `refsel_err` (`usb_pll_lock_det`). | 01 = 24 MHz / 01 | TBC (Q6) |
+| `pll_lock` | — (digital lock detector `usb_pll_lock_det`, section 4.3) | internal | 1 = `clk_bit` within ±0.1 % of `fb_div` × `ref_dig` | 0 | Proposed |
 
 ### 3.4 FS / LS transceiver (all **New**)
 
@@ -187,7 +187,25 @@ Findings:
 | Parameter | Value | Status |
 |---|---|---|
 | PLL lock time from `PLL_EN` | ≤ 100 µs (Proposed; the ULPI PHY holds DIR high until the clock is valid) | TBC |
-| Digital lock criterion | count `clk_bit` cycles over 256 `ref_dig` cycles: expected 5120, accepted ±5 (±0.1 %), 4 consecutive good windows → `pll_lock` = 1, one bad window → `pll_lock` = 0 and the loss-of-lock flag | Proposed |
+| Digital lock criterion | count `clk_bit` cycles over 256 `ref_dig` cycles: expected 5120 (19.2 MHz: 6400, 26 MHz: 4726), accepted ±5 (±0.1 %), 4 consecutive good windows → `pll_lock` = 1, one bad window → `pll_lock` = 0 and the loss-of-lock flag | Proposed, implemented (A4) |
+| Missing reference | no window end for 8191 `clk_bit` cycles counts as a bad window | Proposed, implemented |
+| Dead `clk_bit` (VCO stopped, `PLL_EN` = 1) | heartbeat `clk_bit` / 128 checked on `ref_dig`; 32 reference cycles without an edge reset the detector asynchronously | Proposed, implemented |
+
+**A4 results** (`tb_usb_pll_lock_det` with `afe_pll_bm`: first-order frequency settling, τ = 5 µs, VCO 400–500 MHz, start at 400 MHz):
+
+| Case | Result |
+|---|---|
+| Lock after `PLL_EN` (24 MHz ± 500 ppm; 19.2 MHz) | 70–73 µs (24 MHz), 78 µs (19.2 MHz); the PLL model is inside ±0.08 % after 26.7 µs, the detector adds at most 5 windows (53 µs at 24 MHz, 67 µs at 19.2 MHz) |
+| Frequency error +0.05 % | lock kept |
+| Frequency error +0.3 % | lock lost after 6.6 µs (≤ 2 windows), `lol` set, CLKOUT stops cleanly; relock, `lol` stays until cleared |
+| Reference stops | lock lost after 19.5 µs (≤ 1 window + timeout) |
+| `clk_bit` stops with `PLL_EN` = 1 | lock cleared after 1.4 µs; `lol` set once the clock is back |
+| `PLL_EN` = 0 (ordered: CLKOUT stopped first) | lock cleared at once, `lol` not set |
+| 26 MHz reference with `refsel` = 24 MHz | no lock: the PLL runs into its VCO limit (500 MHz, ratio 19.23) |
+
+Requirement that follows (for Q6 / the PLL design): with the 100 µs budget above, the PLL must be inside ±0.08 % within **45 µs** of `PLL_EN` at 24 MHz (30 µs at 19.2 MHz), worst corner. The detector checks the ratio `clk_bit` / `ref_dig`, i.e. that the PLL follows its reference; a reference that is off but still inside the PLL's range is not detected (the crystal's ±500 ppm are the crystal's job).
+
+**CLKOUT** (`usb_clk_gen`): `ce60` and the 60 MHz `CLKOUT` come from a ÷8 counter on `clk_bit`; `CLKOUT` rises half a `clk_bit` cycle before the edge with `ce60` = 1 and is high / low for 4 cycles each. Its enable (`pll_lock` and not clock suspend) is taken once per period, before the rising edge, so `CLKOUT` only shows complete periods and stops low. `clk_on` = 0 means it has stopped; the power sequencer must wait for `clk_on` = 0 before it turns the PLL off, because stopping `clk_bit` in a high phase would cut the pulse.
 
 ### 4.4 FS / LS
 
@@ -244,6 +262,8 @@ Flip-flop overhead (DFRQJIHDX1, light load): clock-to-Q 0.23–0.39 ns fast, 0.3
 | `usb_rx_elastic_buffer` (write side) | yes (`clk_rx`) | 2.98 ns | 1.58 ns | fails both |
 | `usb_rx_hs_frontend` | yes | 0.30 ns | 0.14 ns | passes |
 | `usb_tx_serializer` | shift / bit counter yes, inputs are 8-cycle multicycle paths | 3.00 ns (path type not separated) | 1.46 ns | needs real STA with multicycle constraints |
+| `usb_clk_gen` (A4) | yes (`clk_bit`, one falling-edge flop with half-cycle inputs from flops) | 0.60 ns | 0.45 ns | at the slow budget, passes typ |
+| `usb_pll_lock_det` (A4, `refsel` static) | yes (`clk_bit` counter, range check one cycle ahead) | 1.63 ns | 0.75 ns | fails slow, passes typ |
 | `usb_afe_tx_if` (A2) | yes (`clk_bit`), every path flop → ≤ 2 gates → flop after the A2 restructuring | 1.49 ns | 0.77 ns | fails slow, passes typ |
 | `usb_bit_stuffer`, `usb_nrzi_encoder` | no: byte-wide on `ce60`, 8-cycle multicycle (16.7 ns) | 4.39 / 3.00 ns | 2.25 / 1.40 ns | pass as multicycle paths |
 
