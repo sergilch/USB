@@ -16,7 +16,7 @@
 //   PAD_ULPI_STP   ----> in   Y = stp                 ulpi_stp
 //   PAD_RESETB     ----> in   Y -> reset synchronizer rst_n of the core (core_rst_n)
 //
-// BBSUD8F pin use (behaviour as in the library model, BBSUD8F.v)
+// BBSUD8F pin use (behaviour as in the library model, X-FAB/BBSUD8F.v)
 //   EN is active low: EN = 0 drives PAD with A.  Input-only cells have EN = 1, A = 0;
 //   output-only cells have EN = 0 and Y unused.
 //   Pulls: PUEN = 0 pull-up; PUEN = 1, PDEN = 0 pull-down; PUEN = PDEN = 1 none.

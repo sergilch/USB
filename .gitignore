@@ -1,3 +1,6 @@
+# Build outputs of run_tests.sh / run_synth.sh
+build/
+
 # Icarus Verilog simulation outputs
 sim
 sim_*
@@ -16,8 +19,11 @@ sim_*
 .DS_Store
 
 # X-FAB xh018 PDK files (confidential, not for this public repository).
-# Keep local copies in the repo root: IO_CELLS_JIF3V.v, VLG_PRIMITIVES.v and
-# BBSUD8F.v (the BBSUD8F cell extracted unchanged from IO_CELLS_JIF3V.v).
+# Local copies live in X-FAB/: IO_CELLS_JIF3V.v, VLG_PRIMITIVES.v, BBSUD8F.v (the
+# BBSUD8F cell extracted unchanged from IO_CELLS_JIF3V.v) and the xh018 standard-cell
+# views (xh018_lib/, xh018_lef/, xh018_v/).
+X-FAB/
+# copies that might still be lying around in the repo root
 IO_CELLS_JIF3V.v
 VLG_PRIMITIVES.v
 BBSUD8F.v

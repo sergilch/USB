@@ -3,7 +3,7 @@
 // (usb_ulpi_phy_top behind the BBSUD8F digital pads)
 //
 // Run (Icarus Verilog), with the pull-up / pull-down model of the pads (recommended):
-//   iverilog -g2005 -DDISPLAY_PD_PU_EN -o sim_pads VLG_PRIMITIVES.v BBSUD8F.v \
+//   iverilog -g2005 -DDISPLAY_PD_PU_EN -o sim_pads X-FAB/VLG_PRIMITIVES.v X-FAB/BBSUD8F.v \
 //            usb_ulpi_input_capture.v usb_ulpi_bus_owner.v usb_ulpi_reg_access.v \
 //            usb_ulpi_burst_mux.v usb_tx_holding.v usb_tx_sync_mux.v usb_bit_stuffer.v \
 //            usb_nrzi_encoder.v usb_tx_serializer.v usb_tx_path.v usb_tx_datapath.v \

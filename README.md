@@ -49,7 +49,7 @@ usb_ulpi_phy_top            phy_if + register file; maps comparators -> VbusStat
         └── usb_ulpi_out_arbiter     RX data vs RXCMD -> burst into the core
 ```
 
-`BBSUD8F.v` is the pad cell, copied unchanged from the X-FAB library `IO_CELLS_JIF3V.v`. It needs the UDPs in `VLG_PRIMITIVES.v`. The pad model only models its pull-up / pull-down when compiled with `-DDISPLAY_PD_PU_EN`. These X-FAB files are confidential PDK data and are **not** in this repository (they are in `.gitignore`). To simulate `usb_ulpi_phy_pads`, put `VLG_PRIMITIVES.v` from the xh018 PDK in the repo root, and `BBSUD8F.v`, which holds the `BBSUD8F` cell (from its `` `timescale`` to its `` `endcelldefine``) cut out of `IO_CELLS_JIF3V.v`.
+`BBSUD8F.v` is the pad cell, copied unchanged from the X-FAB library `IO_CELLS_JIF3V.v`. It needs the UDPs in `VLG_PRIMITIVES.v`. The pad model only models its pull-up / pull-down when compiled with `-DDISPLAY_PD_PU_EN`. These X-FAB files are confidential PDK data and are **not** in this repository: they belong in a local `X-FAB/` directory, which `.gitignore` excludes. To simulate `usb_ulpi_phy_pads`, put `VLG_PRIMITIVES.v` from the xh018 I/O library into `X-FAB/`, together with `BBSUD8F.v`, which holds the `BBSUD8F` cell (from its `` `timescale`` to its `` `endcelldefine``) cut out of `IO_CELLS_JIF3V.v`.
 
 `usb_ulpi_tx_top` is an older, smaller top level: input capture, TX datapath and bus owner only, with no register access.
 
@@ -71,7 +71,20 @@ Each module's header comment holds its detailed spec: pipeline position, timing 
 | `DIV_W`    | 9       | Width of the bit-rate divider counter    |
 | `RX_DEPTH` | 8       | Depth of the RX data FIFO                |
 
-## Simulation
+## Simulation and synthesis
+
+```sh
+./run_tests.sh                 # all testbenches (Icarus Verilog), in parallel
+./run_tests.sh ulpi_core rx_   # only testbenches whose name contains one of the words
+./run_synth.sh                 # Yosys synthesis smoke test of the top levels
+CORNER=slow ./run_synth.sh     # xh018 Liberty corner: typ (default), slow, fast
+```
+
+With GNU make installed, `make test`, `make synth`, `make all` and `make clean` do the same (`TB=`, `TOPS=`, `CORNER=`, `JOBS=` as variables).
+
+`run_tests.sh` takes each testbench's build command from its header and puts simulations, logs and VCDs into `build/`. It prints one line per testbench and a summary, and exits non-zero if any testbench fails. Testbenches that need the X-FAB pad model are skipped when `X-FAB/` is missing.
+
+`run_synth.sh` synthesizes `usb_ulpi_phy_top`, `usb_ulpi_phy_pads`, `usb_rx_datapath` and `usb_ulpi_tx_top` with [Yosys](https://yosyshq.net/yosys/). It fails on inferred latches and on `check -assert` problems (undriven or multiply driven nets, loops). With the X-FAB xh018 standard cells in `X-FAB/xh018_lib`, it also maps the design onto D_CELLS_JIHD, requires a complete mapping and reports cells and area; without them it runs generic synthesis only. The pad cells are black boxes. Timing is not analysed yet.
 
 The testbenches are written for [Icarus Verilog](https://steveicarus.github.io/iverilog/). Each testbench's header comment has the exact command and file list it needs. For example:
 
@@ -104,24 +117,6 @@ Every testbench checks its own results and ends with `TEST PASSED`, `TEST FAILED
 | `tb_usb_rx_fsls_frontend.v`   | `usb_rx_fsls_frontend.v`                             |
 | `tb_usb_rx_hs_frontend.v`     | `usb_rx_hs_frontend.v`                               |
 
-To run all the unit testbenches:
-
-```sh
-run() { n=$1; shift; iverilog -g2005 -o sim_$n "$@" tb_usb_$n.v && echo "$n: $(vvp sim_$n | grep 'TEST ')"; }
-run bit_stuffer        usb_bit_stuffer.v
-run tx_serializer      usb_tx_serializer.v
-run tx_sync_mux        usb_tx_sync_mux.v
-run nrzi_encoder       usb_nrzi_encoder.v
-run tx_path            usb_bit_stuffer.v usb_nrzi_encoder.v usb_tx_serializer.v usb_tx_path.v
-run tx_holding         usb_ulpi_input_capture.v usb_tx_holding.v
-run ulpi_input_capture usb_ulpi_input_capture.v
-run ulpi_bus_owner     usb_ulpi_bus_owner.v
-run ulpi_reg_file      usb_ulpi_reg_file.v
-for m in nrzi_decoder sync_detect bit_unstuffer deserializer eop_check elastic_buffer fsls_frontend hs_frontend; do
-  run rx_$m usb_rx_$m.v
-done
-```
-
 ### Integration testbenches
 
 `tb_usb_ulpi_tx_top`, `tb_usb_ulpi_core`, `tb_usb_ulpi_phy_if` and `tb_usb_ulpi_phy_pads`, from smallest to largest. They model a ULPI Link at the pins. The model holds each byte until NXT, retries commands that lose to DIR, and flags protocol errors. The testbenches check register contents against a shadow model and rebuild every transmitted packet from `txd` / `tx_en` / `tx_se0` (de-NRZI, de-stuff, EOP timing). 
@@ -146,11 +141,12 @@ Copy the integration testbenches' file lists from their headers.
 
 ## Repository layout
 
-All files are in the repository root:
+The RTL and testbenches are all in the repository root:
 
 - `usb_*.v`: RTL modules
 - `tb_usb_*.v`: self-checking testbenches
-- `BBSUD8F.v`, `VLG_PRIMITIVES.v` (not committed, see `.gitignore`): X-FAB xh018 pad-cell simulation model and its UDPs, needed locally for `tb_usb_ulpi_phy_pads`
+- `run_tests.sh`, `run_synth.sh`, `Makefile`: test and synthesis runners (outputs in `build/`, git-ignored)
+- `X-FAB/` (local only, not committed): X-FAB xh018 PDK files, i.e. the pad cell `BBSUD8F.v` with its UDPs (needed for `tb_usb_ulpi_phy_pads`) and the D_CELLS_JIHD standard-cell library (Liberty, LEF, Verilog)
 - `DOC/`: reference documentation (ULPI 1.1 specification, USB3300 datasheet) and the block diagrams (`DOC/Diagramm/`)
 - `WORK_PLAN.md`: development plan for the complete digital section
 

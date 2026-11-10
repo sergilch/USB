@@ -4,9 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-The digital ULPI side of a USB 2.0 PHY (HS / FS / LS), written in Verilog-2005. Every RTL file is `usb_*.v`, every testbench is `tb_<module>.v`, and all of them sit flat in the repo root. There is no build system, Makefile or git history.
+The digital ULPI side of a USB 2.0 PHY (HS / FS / LS), written in Verilog-2005. Every RTL file is `usb_*.v`, every testbench is `tb_<module>.v`, and all of them sit flat in the repo root. `./run_tests.sh` and `./run_synth.sh` run everything (the `Makefile` only wraps them, and `make` is not installed on this machine); outputs go to the git-ignored `build/`.
 
 ## Simulation (Icarus Verilog)
+
+`./run_tests.sh` runs all testbenches in parallel, or only those whose name contains one of its arguments (`./run_tests.sh ulpi_core rx_`). It takes each build command from the testbench header, writes simulations, logs and VCDs to `build/`, skips TBs that need `X-FAB/` when it is missing, and exits non-zero on any failure. So the header command is the single source of the file list: keep it correct when adding files, and give every new testbench one (an `//   iverilog ...` line with `\` continuations).
 
 Each testbench's header comment has the exact `iverilog` command and file list it needs. Read that header and use it rather than guessing at dependencies. Pattern:
 
@@ -20,6 +22,10 @@ vvp sim_bs
 - Unit testbenches: `tb_usb_bit_stuffer`, `tb_usb_tx_serializer`, `tb_usb_tx_sync_mux`, `tb_usb_nrzi_encoder`, `tb_usb_tx_path` (needs stuffer, NRZI and serializer), `tb_usb_tx_holding` (also needs `usb_ulpi_input_capture.v`), `tb_usb_ulpi_input_capture`, `tb_usb_ulpi_bus_owner`, `tb_usb_ulpi_reg_file`.
 - RX unit testbenches: `tb_usb_rx_nrzi_decoder`, `tb_usb_rx_sync_detect`, `tb_usb_rx_bit_unstuffer`, `tb_usb_rx_deserializer`, `tb_usb_rx_eop_check`, `tb_usb_rx_elastic_buffer`, `tb_usb_rx_fsls_frontend`, `tb_usb_rx_hs_frontend` (each needs only its own module).
 - Integration testbenches: `tb_usb_ulpi_tx_top`, `tb_usb_ulpi_core`, `tb_usb_ulpi_phy_if` and `tb_usb_ulpi_phy_pads` (register access through the pads; build it with `-DDISPLAY_PD_PU_EN` so the pad pulls are modelled), from smallest to largest, and `tb_usb_rx_datapath` (TX→RX loopback: a far-end `usb_tx_path` on a ppm-offset clock, an HS CDR/squelch and FS/LS D+/D− line model, a raw symbol generator for protocol errors, and `usb_ulpi_rx_handler` behind the DUT). Their file lists are long. Copy them from the header.
+
+## Synthesis (Yosys)
+
+`./run_synth.sh` (`CORNER=typ|slow|fast`) is a smoke test per top level (`usb_ulpi_phy_top`, `usb_ulpi_phy_pads`, `usb_rx_datapath`, `usb_ulpi_tx_top`). It runs `synth -flatten`, fails on any latch and on `check -assert` problems, then maps to the X-FAB D_CELLS_JIHD library (`X-FAB/xh018_lib`), requires that no generic cells are left, and reports cells, flip-flops and area. BBSUD8F is a black box whose ports are cut out of `X-FAB/BBSUD8F.v` at run time (Yosys can't parse the vendor model: XL directives, polarity `specify` paths). Without `X-FAB/` only the generic part runs and the pad wrapper is skipped. No timing analysis yet. Keep new RTL synthesizable and latch-free; add a new top level to `TOPS` in the script.
 
 **Status:** all 22 testbenches build and pass with Icarus Verilog (installed on this machine). The pad wrapper `usb_ulpi_phy_pads` was added on 2026-11-10. The TX path was completed and the RX datapath (`usb_rx_*.v`) added on 2026-11-08. The RX datapath is not wired into `usb_ulpi_phy_top` yet (work plan, Phase 8): `usb_ulpi_phy_top` still takes `rx_*` as ports, and `usb_rx_datapath` drives exactly that interface.
 
@@ -62,7 +68,7 @@ usb_rx_decoder: usb_rx_nrzi_decoder -> usb_rx_sync_detect -> usb_rx_bit_unstuffe
                 -> usb_rx_deserializer -> usb_rx_eop_check (START / BYTE / END(err) event words)
 ```
 
-`BBSUD8F.v` is the X-FAB xh018 pad cell, copied unchanged from `IO_CELLS_JIF3V.v`. It needs `VLG_PRIMITIVES.v` (UDPs) and only models its pulls with `` `define DISPLAY_PD_PU_EN``. EN is active low. Pull-up is PUEN = 0, pull-down is PUEN = 1 with PDEN = 0. Do not edit the vendor files, and never commit them: `BBSUD8F.v`, `VLG_PRIMITIVES.v` and `IO_CELLS_JIF3V.v` are confidential X-FAB PDK data, the GitHub repo is public, and `.gitignore` lists them.
+`X-FAB/` (local only, ignored by git) holds the xh018 PDK files: `BBSUD8F.v` (the pad cell, copied unchanged from `IO_CELLS_JIF3V.v`), `VLG_PRIMITIVES.v` (UDPs of the I/O library), `IO_CELLS_JIF3V.v`, and the D_CELLS_JIHD standard cells in `xh018_lib/` (Liberty: fast / typ / slow), `xh018_lef/` and `xh018_v/` (simulation models with their own, newer `VLG_PRIMITIVES.v`). `BBSUD8F.v` needs `X-FAB/VLG_PRIMITIVES.v` and only models its pulls with `` `define DISPLAY_PD_PU_EN``. EN is active low. Pull-up is PUEN = 0, pull-down is PUEN = 1 with PDEN = 0. Do not edit the vendor files, and never commit anything from `X-FAB/`: it is confidential X-FAB PDK data, the GitHub repo is public, and `.gitignore` excludes the whole directory.
 
 `usb_ulpi_tx_top` is an older, smaller top level: capture + TX datapath + bus owner, with no register access. Its register and RX hooks are left as open ports. `tb_usb_ulpi_tx_top` still tests it.
 

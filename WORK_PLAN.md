@@ -89,12 +89,12 @@ Size: **S** ≈ one small module + testbench, **M** ≈ a few modules or one com
 
 | ID | Task |
 |---|---|
-| 0.1 | Add a `Makefile` (or `run_tests.sh`) with one target per testbench, using the file lists from the TB headers. A `make test` target runs everything and summarises the `TEST PASSED` / `FAILED` lines. Build `tb_usb_ulpi_phy_pads` with `-DDISPLAY_PD_PU_EN`, and skip it with a clear message if the local X-FAB files are missing. |
+| 0.1 | ✅ Done 2026-11-10: `run_tests.sh`, plus a `Makefile` that wraps it (`make test`; `make` is not installed on the build machine yet). Takes the build command from each TB header (the pad TB's includes `-DDISPLAY_PD_PU_EN`), runs in parallel into `build/`, summarises the `TEST PASSED` / `FAILED` lines, skips TBs that need `X-FAB/` when it is missing, and returns a failing exit code. Selection by name: `./run_tests.sh ulpi_core rx_`. |
 | 0.2 | Add a lint step: `verilator --lint-only -Wall` on every RTL file (Verilator is installed now). Clean up the warnings that already exist: WIDTHEXPAND in `usb_ulpi_rx_handler` and `usb_ulpi_reg_access`, and UNOPTFLAT on `rdy` in `usb_ulpi_bus_owner`. Leave the vendor pad model out of the lint. |
-| 0.3 | Add a synthesis smoke test (`yosys` `synth` per top level) to catch non-synthesizable code and inferred latches. |
-| 0.4 | Optional: GitHub Actions workflow that runs 0.1–0.3 on every push. |
+| 0.3 | ✅ Done 2026-11-10: `run_synth.sh` (`make synth`, Yosys 0.33). Per top level (`usb_ulpi_phy_top`, `usb_ulpi_phy_pads`, `usb_rx_datapath`, `usb_ulpi_tx_top`): `synth -flatten`, fail on latches and on `check -assert`, map onto the xh018 D_CELLS_JIHD library (`CORNER=typ/slow/fast`) with no generic cells left, and report cells, flip-flops and area. BBSUD8F is a black box. All four pass; typ corner: `usb_ulpi_phy_top` ≈ 1,690 cells / 364 flip-flops / ≈ 39,800 µm² (assuming µm² as the Liberty area unit), `usb_rx_datapath` ≈ 1,190 / 436 / ≈ 37,000. Timing analysis is not part of it (9.1 / 9.3). |
+| 0.4 | Optional: GitHub Actions workflow that runs 0.1–0.3 on every push. On a public runner there is no PDK: `run_tests.sh` skips the pad TB and `run_synth.sh` runs generic synthesis only, both by design. |
 
-**Done when:** the six existing unit TBs pass via `make test`, and lint and synthesis run without errors.
+**Done when:** the six existing unit TBs pass via `make test`, and lint and synthesis run without errors. Status: 0.1 and 0.3 done (all 22 TBs via `run_tests.sh`, synthesis clean); 0.2 (lint cleanup) and 0.4 (CI) open.
 
 ### Phase 1 — Complete the TX path (M) — ✅ done 2026-11-08 (except 0.x infrastructure)
 
@@ -244,7 +244,7 @@ Phase 0 ─┐
 
 | Milestone | Content | Exit criterion |
 |---|---|---|
-| **M1 — TX complete** | Phases 0 + 1 | All TBs pass via `make test`; lint clean. Phase 1 done: all twelve TBs pass; Phase 0 still open. |
+| **M1 — TX complete** | Phases 0 + 1 | All TBs pass via `make test`; lint clean. Phase 1 done. Phase 0: 0.1 and 0.3 done 2026-11-10, 0.2 (lint cleanup) and 0.4 open. |
 | **M2 — Data loopback** | Phase 2 | TX → RX loopback passes for HS/FS/LS with jitter, ppm offset and injected errors. ✅ Reached 2026-11-08 (`tb_usb_rx_datapath`; ppm offset, lost SYNC bits, D+/D− skew and injected errors; bit-level jitter is left to the analog CDR). |
 | **M3 — Enumerable PHY** | Phases 3 + 4 + core of 5 (reset, `ce60`, soft reset) | The system TB runs attach → HS handshake → HS traffic → reset. |
 | **M4 — Feature complete** | Rest of Phase 5, Phases 6 + 7 + 8.1 | Low-power mode, test modes, trim registers and the full top level, verified in the system TB. |
@@ -255,8 +255,8 @@ Phase 0 ─┐
 | Risk | Impact | Mitigation |
 |---|---|---|
 | The CDR output format is not defined yet (D1) | Rework of the RX front end and elastic buffer | Agree on the interface with the analog team before Phase 2; keep the RX front end a separate, swappable module. |
-| 480 MHz timing on the serializer / stuffer / RX front end | Synthesis fails at the target node | Keep bit-rate logic minimal (the existing serializer is already structured this way); check timing early in Phase 0.3 with the target library. |
+| 480 MHz timing on the serializer / stuffer / RX front end | Synthesis fails at the target node | Keep bit-rate logic minimal (the existing serializer is already structured this way). `run_synth.sh` already maps onto the xh018 library; add a timing check (OpenSTA or Yosys `sta`, with the `ce60` multicycle paths) early, before 9.3. |
 | Ambiguous ULPI 1.1 / UTMI+ details (OpMode `10`/`11` framing, low-power pin mapping, soft-reset scope) | Wrong behaviour with real Links | Check every point against the ULPI 1.1 spec and the USB3320 datasheet in `DOC/`; record each decision in the module header. |
 | Link model and DUT built from the same interpretation of the spec | Shared misunderstanding passes the tests | Cross-check against the USB3320 datasheet waveforms; FPGA test with a real Link core (8.5). |
-| X-FAB PDK files are confidential and the repository is public | The pad TB can't run in CI or on clones without the PDK; files could be published by accident | Keep `BBSUD8F.v`, `VLG_PRIMITIVES.v` and `IO_CELLS_JIF3V.v` in `.gitignore`; run the pad TB locally (or on a private CI runner with the PDK); never force-add them. |
+| X-FAB PDK files are confidential and the repository is public | The pad TB and library synthesis can't run in CI or on clones without the PDK; files could be published by accident | Keep all PDK files in the local `X-FAB/` directory, which `.gitignore` excludes; run the pad TB and library synthesis locally (or on a private CI runner with the PDK); never force-add them. |
 | Icarus Verilog limits (no SystemVerilog assertions or coverage) | Weaker verification | Keep Verilog-2005 checkers in the TBs; optionally add Verilator for speed and lint. |
