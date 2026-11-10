@@ -10,6 +10,10 @@
 // Rules
 //   * Register data has priority, but a PHY burst that has already started (a byte
 //     consumed and ext_valid still high) is never interrupted: ext_mid.
+//   * While a register read is pending (rd_pend: acknowledged, data not ready yet) no
+//     PHY burst is started, so the bus owner does not take the bus for an RXCMD before
+//     the read data: the register byte must be the first byte after the turnaround.
+//     The RXCMD / RX data waits (RX FIFO) and follows after the register burst.
 //   * The register byte is followed by one tick with out_valid = 0, so it always forms
 //     a burst of its own (DIR falls after it) and is never merged with a PHY burst.
 //   * out_ready is the arb_ready of the bus owner; it is routed to the source that is
@@ -31,6 +35,7 @@ module usb_ulpi_burst_mux (
     input  wire        rd_valid,
     input  wire [7:0]  rd_data,
     output wire        rd_ready,
+    input  wire        rd_pend,       // register read acknowledged, data not ready yet
 
     // PHY burst source
     input  wire        ext_valid,
@@ -48,7 +53,7 @@ module usb_ulpi_burst_mux (
     reg ext_mid;                           // a PHY burst is in progress
     reg gap;                               // one empty tick after the register byte
 
-    wire use_reg = rd_valid && !ext_mid;
+    wire use_reg = (rd_valid || rd_pend) && !ext_mid;
 
     assign out_valid   = !gap && (use_reg ? rd_valid : ext_valid);
     assign out_data    = use_reg ? rd_data : ext_data;

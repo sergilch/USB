@@ -14,15 +14,19 @@
 //              +------ dir/nxt ------ usb_ulpi_bus_owner --> pins DIR, NXT, DATA out + OE
 //
 // Everything runs on clk_bit with the tick enable ce60 (one cycle in eight, aligned with
-// clk60).  The pad cells are outside: ulpi_data_in / ulpi_stp come from the input pads,
-// ulpi_dir / ulpi_nxt / ulpi_data_out / ulpi_data_oe drive the output pads.
+// clk60).  The pad cells are outside (usb_ulpi_phy_pads): ulpi_data_in / ulpi_stp come
+// from the input pads, ulpi_dir / ulpi_nxt / ulpi_data_out / ulpi_data_oe drive the
+// output pads.
 //
 // How the two Link-driven transfer types are kept apart
 //   * a register command is not acknowledged while a TX packet is in progress
 //     (usb_tx_holding busy), and TXCMD decoding is inhibited while the Link is still
 //     driving bytes of a register transfer (reg_link_busy), because payload / address /
 //     data bytes can look like commands;
-//   * the bus owner never takes the bus while either of them is active.
+//   * the bus owner never takes the bus while either of them is active;
+//   * between the acknowledge of a register read and its data (rd_pend) the burst mux
+//     starts no PHY burst, so the read data is the first byte after the turnaround and
+//     a pending RXCMD goes out after it.
 //
 // Still open: the Output Arbiter / RX Data Handler / RXCMD Generator (they drive
 // arb_*), the low-power controller (dir_hold) and the Register File itself.
@@ -96,7 +100,7 @@ module usb_ulpi_core #(
     wire       tx_nxt_n, hold_busy, dp_busy;
     // register access
     wire       reg_nxt_n, reg_link_busy, reg_busy;
-    wire       rg_burst_valid, rg_burst_ready;
+    wire       rg_burst_valid, rg_burst_ready, rg_rd_pend;
     wire [7:0] rg_burst_data;
     // burst mux -> bus owner
     wire       m_valid, m_is_data, m_ready;
@@ -182,6 +186,7 @@ module usb_ulpi_core #(
         .rd_burst_valid (rg_burst_valid),
         .rd_burst_data  (rg_burst_data),
         .rd_burst_ready (rg_burst_ready),
+        .rd_pend        (rg_rd_pend),
         .busy           (reg_busy)
     );
 
@@ -192,6 +197,7 @@ module usb_ulpi_core #(
         .rd_valid    (rg_burst_valid),
         .rd_data     (rg_burst_data),
         .rd_ready    (rg_burst_ready),
+        .rd_pend     (rg_rd_pend),
         .ext_valid   (arb_valid),
         .ext_data    (arb_data),
         .ext_is_data (arb_is_data),

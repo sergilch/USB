@@ -9,8 +9,9 @@ The analog front end and the line-state, VBUS and ID detectors are **not** part 
 ## Features
 
 - **ULPI 1.1 PHY-side interface:** DIR / NXT / STP / DATA[7:0], with bus turnaround, NXT pacing and TXCMD decoding.
-- **Register access:** immediate (00h–3Fh) and extended (AFh / EFh, pointer 2Fh) register reads and writes.
-- **Register file:** Vendor/Product ID, Function Control, Interface Control, OTG Control, USB Interrupt Enable Rising/Falling, Status, Latch, Debug and Scratch, with SET/CLR aliases. VID/PID default to the USB3320 values (0424h / 0007h).
+- **Register access:** immediate (00h–3Fh) and extended (AFh / EFh, pointer 2Fh) register reads and writes. Register read data is always the first byte after the turnaround; pending RXCMDs wait until it has been sent.
+- **Register file:** Vendor/Product ID, Function Control, Interface Control, OTG Control, USB Interrupt Enable Rising/Falling, Status, Latch, Debug and Scratch, with SET/CLR aliases. Extended addresses 00h–3Fh mirror the immediate set (ULPI 1.1 §4). VID/PID default to the USB3320 values (0424h / 0007h).
+- **Pad wrapper:** `usb_ulpi_phy_pads` puts the ULPI pins (CLK, DATA[7:0], DIR, NXT, STP) and RESETB on X-FAB xh018 `BBSUD8F` digital I/O cells, with the ULPI interface-protection pulls (STP pull-up, DATA pull-downs, switched by Interface Control bit 7), a RESETB synchronizer and a NAND-tree chain.
 - **TX path:** 4-byte holding FIFO → SYNC/PID mux → bit stuffer → NRZI encoder → serializer + EOP.
   - HS, FS and LS bit rates selected by XcvrSelect, sampled at packet start.
   - HS EOP is 8 bit times at the inverted level. FS/LS EOP is SE0 for 2 bits, then J.
@@ -27,9 +28,12 @@ The analog front end and the line-state, VBUS and ID detectors are **not** part 
 ## Architecture
 
 ```
+usb_ulpi_phy_pads           BBSUD8F pads for CLK / DATA / DIR / NXT / STP / RESETB, protection
+│                           pulls (Interface Control bit 7), RESETB synchronizer, NAND tree
+└── usb_ulpi_phy_top
 usb_ulpi_phy_top            phy_if + register file; maps comparators -> VbusState,
 │                           XcvrSelect -> TX speed, OpMode 10 -> bypass (no stuff/NRZI)
-├── usb_ulpi_reg_file       ULPI register file (immediate + extended), IE rise/fall masks
+├── usb_ulpi_reg_file       ULPI register file (immediate set, mirrored at ext 00h-3Fh), IE masks
 └── usb_ulpi_phy_if
     ├── usb_ulpi_core
     │   ├── usb_ulpi_input_capture   registers pins, decodes TXCMD / RegWrite / RegRead / ext (AFh/EFh)
@@ -43,6 +47,8 @@ usb_ulpi_phy_top            phy_if + register file; maps comparators -> VbusStat
         ├── usb_ulpi_rxcmd_gen       RXCMD bytes from linestate/VBUS/ID/interrupt changes
         └── usb_ulpi_out_arbiter     RX data vs RXCMD -> burst into the core
 ```
+
+`BBSUD8F.v` is the pad cell, copied unchanged from the X-FAB library `IO_CELLS_JIF3V.v`. It needs the UDPs in `VLG_PRIMITIVES.v`. The pad model only models its pull-up / pull-down when compiled with `-DDISPLAY_PD_PU_EN`. These X-FAB files are confidential PDK data and are **not** in this repository (they are in `.gitignore`). To simulate `usb_ulpi_phy_pads`, put `VLG_PRIMITIVES.v` from the xh018 PDK in the repo root, and `BBSUD8F.v`, which holds the `BBSUD8F` cell (from its `` `timescale`` to its `` `endcelldefine``) cut out of `IO_CELLS_JIF3V.v`.
 
 `usb_ulpi_tx_top` is an older, smaller top level: input capture, TX datapath and bus owner only, with no register access.
 
@@ -117,15 +123,18 @@ done
 
 ### Integration testbenches
 
-`tb_usb_ulpi_tx_top`, `tb_usb_ulpi_core` and `tb_usb_ulpi_phy_if`, from smallest to largest. They model a ULPI Link at the pins. The model holds each byte until NXT, retries commands that lose to DIR, and flags protocol errors. The testbenches check register contents against a shadow model and rebuild every transmitted packet from `txd` / `tx_en` / `tx_se0` (de-NRZI, de-stuff, EOP timing). 
+`tb_usb_ulpi_tx_top`, `tb_usb_ulpi_core`, `tb_usb_ulpi_phy_if` and `tb_usb_ulpi_phy_pads`, from smallest to largest. They model a ULPI Link at the pins. The model holds each byte until NXT, retries commands that lose to DIR, and flags protocol errors. The testbenches check register contents against a shadow model and rebuild every transmitted packet from `txd` / `tx_en` / `tx_se0` (de-NRZI, de-stuff, EOP timing). 
 
 `tb_usb_rx_datapath` is the top-level RX testbench, a TX→RX loopback. A far-end `usb_tx_path` on its own clock (ppm offset) sends packets through a line model: for HS an ideal CDR with squelch / lock acquisition that drops 2–20 SYNC bits and noise between packets, for FS/LS D+/D− with skew. A raw symbol generator injects protocol errors. Every received packet is compared with the one sent, and `usb_ulpi_rx_handler` behind the DUT must forward exactly the same bytes.
+
+`tb_usb_ulpi_phy_pads` tests register access to the whole digital section through the pads. A Link model clocked by the CLK pin works only on the chip pins. It checks the whole register map against a shadow model, including aliases, RO and unmapped addresses, the extended set and its mirror, and status / latch / debug. It also checks the configuration outputs, RXCMD content, Link retries caused by background RXCMDs, the pad wiring, the NAND tree, the protection pulls and RESETB. Build it with `-DDISPLAY_PD_PU_EN`; without that define it still runs but skips the pull checks.
 
 Copy the integration testbenches' file lists from their headers.
 
 ## Project status
 
-- ✅ The TX path and the RX datapath are complete. All 21 testbenches pass with Icarus Verilog.
+- ✅ The TX path and the RX datapath are complete. All 22 testbenches pass with Icarus Verilog.
+- ✅ Pad wrapper `usb_ulpi_phy_pads` (BBSUD8F cells), verified for register access at the pins.
 - ⏳ The RX datapath is not wired into `usb_ulpi_phy_top` yet; that happens with the full top level.
 - ⏳ Line-state detection, mode/termination control, OTG/VBUS control, clock/reset/power management and the AFE interface are still to be written. See [WORK_PLAN.md](WORK_PLAN.md).
 - ⏳ Not implemented yet. These signals are exported, but no logic reacts to them:
@@ -140,6 +149,7 @@ All files are in the repository root:
 
 - `usb_*.v`: RTL modules
 - `tb_usb_*.v`: self-checking testbenches
+- `BBSUD8F.v`, `VLG_PRIMITIVES.v` (not committed, see `.gitignore`): X-FAB xh018 pad-cell simulation model and its UDPs, needed locally for `tb_usb_ulpi_phy_pads`
 - `DOC/`: reference documentation (ULPI 1.1 specification, USB3300 datasheet) and the block diagrams (`DOC/Diagramm/`)
 - `WORK_PLAN.md`: development plan for the complete digital section
 

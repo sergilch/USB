@@ -14,3 +14,10 @@ sim_*
 *~
 *.swp
 .DS_Store
+
+# X-FAB xh018 PDK files (confidential, not for this public repository).
+# Keep local copies in the repo root: IO_CELLS_JIF3V.v, VLG_PRIMITIVES.v and
+# BBSUD8F.v (the BBSUD8F cell extracted unchanged from IO_CELLS_JIF3V.v).
+IO_CELLS_JIF3V.v
+VLG_PRIMITIVES.v
+BBSUD8F.v

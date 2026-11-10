@@ -40,6 +40,10 @@
 //     TXCMD) and keeps the bus owner from taking the bus.  It is low while the read
 //     data is fetched and returned, so the bus owner can take the bus for the return.
 //   * The read data goes out as its own one-byte burst (rd_burst_*, NXT = 0).
+//   * rd_pend = 1 from the acknowledge of a read until its data is ready (S_RREQ,
+//     S_RWAIT): usb_ulpi_burst_mux holds PHY bursts back meanwhile, so the read data is
+//     the first byte after the turnaround (ULPI 1.1 3.8.3.1) and never comes after an
+//     RXCMD, which the Link could not tell apart from it (both NXT = 0).
 //
 // Clocking: one clock with tick enable ce (1 on clk60, ce60 on clk_bit).
 //-----------------------------------------------------------------------------
@@ -81,6 +85,7 @@ module usb_ulpi_reg_access (
     output wire        rd_burst_valid,
     output wire [7:0]  rd_burst_data,
     input  wire        rd_burst_ready,
+    output wire        rd_pend,       // read acknowledged, data not ready yet
 
     output wire        busy
 );
@@ -117,6 +122,7 @@ module usb_ulpi_reg_access (
     assign reg_addr  = addr_q;
     assign reg_wdata = data_q;
 
+    assign rd_pend        = (st == S_RREQ) || (st == S_RWAIT);
     assign rd_burst_valid = (st == S_RRET);
     assign rd_burst_data  = rdata_q;
 

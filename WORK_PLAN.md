@@ -10,7 +10,7 @@
 
 **In scope:** ULPI interface controller, TX path, RX path, register file, mode/termination control, HS support logic, OTG/VBUS control, line-state/event detection, clock/reset/power management, the AFE interface (digital part) and DFT hooks.
 
-**Out of scope:** the analog blocks (transmitter, receiver, PLL/CDR, terminations, comparators, regulator), the physical level-shifter and isolation cells (only their control signals are in scope), and pad cells.
+**Out of scope:** the analog blocks (transmitter, receiver, PLL/CDR, terminations, comparators, regulator), the physical level-shifter and isolation cells (only their control signals are in scope), and the pad cells themselves. The pad *wrapper* (`usb_ulpi_phy_pads`, X-FAB `BBSUD8F` cells) is in scope.
 
 ---
 
@@ -18,7 +18,7 @@
 
 ### 2.1 Already implemented
 
-These blocks exist in RTL. All 21 testbenches pass with Icarus Verilog.
+These blocks exist in RTL. All 22 testbenches pass with Icarus Verilog.
 
 | Diagram block | RTL module(s) | Status |
 |---|---|---|
@@ -30,7 +30,7 @@ These blocks exist in RTL. All 21 testbenches pass with Icarus Verilog.
 | TX Holding Reg / Ctrl | `usb_tx_holding` | Done, unit-tested |
 | Bit Stuffer | `usb_bit_stuffer` | Done, unit-tested |
 | Serializer 8:1 + EOP Gen | `usb_tx_serializer` | Done, unit-tested |
-| ULPI Register File (immediate map 00h–18h) | `usb_ulpi_reg_file` | Done, unit-tested |
+| ULPI Register File (immediate map 00h–18h, mirrored at extended 00h–3Fh) | `usb_ulpi_reg_file` | Done, unit-tested; mirror added 2026-11-10 |
 | SYNC + PID/Data Mux | `usb_tx_sync_mux` | Done, unit-tested (added 2026-11-08) |
 | NRZI Encoder | `usb_nrzi_encoder` | Done, unit-tested (added 2026-11-08) |
 | TX path wrapper (stuffer → NRZI → serializer, underrun discard) | `usb_tx_path` | Done, unit-tested (added 2026-11-08) |
@@ -39,6 +39,7 @@ These blocks exist in RTL. All 21 testbenches pass with Icarus Verilog.
 | Elastic Buffer (CDC) | `usb_rx_elastic_buffer` | Done, unit-tested (added 2026-11-08) |
 | RX datapath wrapper | `usb_rx_datapath` | Done; `tb_usb_rx_datapath` (TX → RX loopback) passes |
 | Interconnect | `usb_tx_datapath`, `usb_ulpi_core`, `usb_ulpi_phy_if`, `usb_ulpi_phy_top` | Done; `tb_usb_ulpi_tx_top`, `tb_usb_ulpi_core`, `tb_usb_ulpi_phy_if` pass |
+| Pad wrapper (BBSUD8F for CLK, DATA, DIR, NXT, STP, RESETB; protection pulls; RESETB synchronizer; NAND tree) | `usb_ulpi_phy_pads` | Done; `tb_usb_ulpi_phy_pads` (register access at the pins) passes (added 2026-11-10) |
 
 ### 2.2 Missing or incomplete
 
@@ -53,7 +54,7 @@ These blocks exist in RTL. All 21 testbenches pass with Icarus Verilog.
 | ULPI low-power mode | Not implemented: SuspendM entry, LineState on DATA[1:0] while DIR is held, wake-up via STP or a bus event, ClockSuspendM, AutoResume. |
 | AFE Interface (digital) | Not implemented: TX retiming, RX capture, receiver status sync and glitch filter, termination output ordering, PLL/CDR control, power sequencer, trim/enable registers. |
 | DFT / Test Modes | Not implemented: loopback, analog test mux control, scan and BIST hooks. |
-| Register file extras | Extended map returns 00h; Carkit (19h–1Fh) and vendor/trim registers (30h–3Fh) are not implemented; Interface Control bits are stored but have no effect. |
+| Register file extras | Extended 40h–FFh read 00h; Carkit (19h–1Fh) and vendor/trim registers (30h–3Fh) are not implemented; Interface Control bits are stored but have no effect. |
 | Top level | There is no `usb_phy_ulpi_digital` top level that ties the PHY core to the AFE interface. |
 
 ---
@@ -147,7 +148,7 @@ The chain from the diagram, with the interface to `usb_ulpi_rx_path` that alread
 
 | ID | Task |
 |---|---|
-| 5.1 | **Reset synchronizers**: `RESETB` / POR → `rst_n` per domain (`clk_bit`, recovered clock), async assert / sync release, held until `pll_lock` and `pwr_good`. |
+| 5.1 | **Reset synchronizers**: `RESETB` / POR → `rst_n` per domain (`clk_bit`, recovered clock), async assert / sync release, held until `pll_lock` and `pwr_good`. The `clk_bit` synchronizer for the RESETB pin already exists in `usb_ulpi_phy_pads` (`core_rst_n`); POR, `pll_lock`, `pwr_good` and the recovered-clock domain are still open. |
 | 5.2 | **`ce60` generator**: divide `clk_bit` by 8, phase-aligned with the `clk60` the PLL sends to `CLKOUT`. It is currently a top-level input. |
 | 5.3 | **PLL / CDR control**: `refsel[1:0]` → divider code (19.2 / 24 / 26 MHz), `pll_en` / `cdr_en` sequencing, lock sync + lock filter, loss-of-lock flag. |
 | 5.4 | **Power sequencer**: `pwr_good` → `bias_en` → `pll_en` → wait for lock → release reset → `iso_en` off; suspend sequence (TX, HS RX and PLL off; FS/LS receiver, squelch and resume detect stay on). |

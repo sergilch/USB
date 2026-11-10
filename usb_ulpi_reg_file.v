@@ -1,8 +1,8 @@
 //-----------------------------------------------------------------------------
 // usb_ulpi_reg_file.v
 //
-// ULPI Register File of the USB 2.0 PHY (immediate register set 00h-3Fh), the block
-// that usb_ulpi_reg_access reads and writes.
+// ULPI Register File of the USB 2.0 PHY (immediate register set 00h-3Fh, mirrored at
+// extended 00h-3Fh), the block that usb_ulpi_reg_access reads and writes.
 //
 //   usb_ulpi_reg_access --reg_*--> [THIS BLOCK] --> config outputs (mode / termination,
 //                                       ^                 interface, OTG, interrupt masks)
@@ -25,8 +25,11 @@
 //                                   of a read is not lost)
 //   15h      Debug                  RO  [1:0] LineState (synchronized)
 //   16h-18h  Scratch                reset 00h
-//   other addresses, and the whole extended set (reg_ext = 1): read 00h, writes ignored
-//   (Carkit and vendor-specific registers are not implemented)
+//   other addresses: read 00h, writes ignored (Carkit and vendor-specific registers are
+//   not implemented)
+//   Extended set (reg_ext = 1, 8-bit address): as ULPI 1.1 section 4 requires, extended
+//   addresses 00h-3Fh are a mirror of the immediate set - they reach the same registers,
+//   there is no second copy.  Extended 40h-FFh read 00h, writes ignored.
 //   Reserved bits read 0 and ignore writes.
 //
 // Register access interface (as in usb_ulpi_reg_access): reg_wr / reg_rd are one-tick
@@ -95,8 +98,11 @@ module usb_ulpi_reg_file #(
     reg [1:0] l0, l1;
     reg [4:0] latch_q;
 
-    // ---------------- write decode (immediate set only) ----------------
-    wire wr_i = reg_wr && !reg_ext;
+    // ---------------- address decode ----------------
+    // imm: the access reaches the immediate set (immediate command, or extended address
+    // 00h-3Fh, which mirrors it)
+    wire imm  = !reg_ext || (reg_addr[7:6] == 2'b00);
+    wire wr_i = reg_wr && imm;
 
     wire [7:0] d_fc  = reg_addr - A_FC;
     wire [7:0] d_ic  = reg_addr - A_IC;
@@ -139,7 +145,7 @@ module usb_ulpi_reg_file #(
 
     always @* begin
         rmux = 8'h00;
-        if (!reg_ext) begin
+        if (imm) begin
             if      (a == 8'h00) rmux = VID_L;
             else if (a == 8'h01) rmux = VID_H;
             else if (a == 8'h02) rmux = PID_L;
@@ -156,7 +162,7 @@ module usb_ulpi_reg_file #(
         end
     end
 
-    wire rd_latch = reg_rd && !reg_ext && (a == 8'h14);
+    wire rd_latch = reg_rd && imm && (a == 8'h14);
 
     // ---------------- registers ----------------
     always @(posedge clk or negedge rst_n) begin

@@ -8,10 +8,10 @@
 // Two kinds of checks:
 //   * Directed tests against hard-coded expectations: reset values of all registers, the
 //     SET / CLEAR aliases, reserved bits, read-only registers (ID, status, latch, debug),
-//     unmapped addresses and the extended set, the self-clearing Reset bit with its
-//     one-tick soft_reset pulse, the configuration outputs and the interrupt latch
-//     (enabled / masked edges, clear on read).  They run with ce = 1 always and with
-//     ce = 1 tick in 8.
+//     unmapped addresses, the extended set (00h-3Fh mirror the immediate set), the
+//     self-clearing Reset bit with its one-tick soft_reset pulse, the configuration
+//     outputs and the interrupt latch (enabled / masked edges, clear on read).  They run
+//     with ce = 1 always and with ce = 1 tick in 8.
 //   * Random lockstep test: random reads / writes / status changes (ce always, one in 8,
 //     random 50 %) against an independently written reference model; after every tick
 //     rd_valid, reg_rdata, soft_reset and all configuration outputs must match.
@@ -129,7 +129,7 @@ module tb_usb_ulpi_reg_file;
             // value that a read of this tick returns
             mv    = 8'h00;
             mbase = grp_base(reg_addr);
-            if (!reg_ext) begin
+            if (!reg_ext || (reg_addr[7:6] == 2'b00)) begin
                 case (reg_addr)
                     8'h00: mv = 8'h24;
                     8'h01: mv = 8'h04;
@@ -153,7 +153,7 @@ module tb_usb_ulpi_reg_file;
             end
             // write
             m_rst = 1'b0;
-            if (reg_wr && !reg_ext && (mbase >= 0)) begin
+            if (reg_wr && (!reg_ext || (reg_addr[7:6] == 2'b00)) && (mbase >= 0)) begin
                 mkind = reg_addr - mbase;
                 case (mbase)
                     8'h04:   begin mcur = m_fc;  mmask = 8'h5F; end
@@ -178,7 +178,7 @@ module tb_usb_ulpi_reg_file;
                 endcase
             end
             // latch (an event wins over the clear on read), synchronizer, read answer
-            m_latch = ((reg_rd && !reg_ext && (reg_addr == 8'h14)) ? 5'd0 : m_latch) | mev;
+            m_latch = ((reg_rd && (!reg_ext || (reg_addr[7:6] == 2'b00)) && (reg_addr == 8'h14)) ? 5'd0 : m_latch) | mev;
             m_p2 = m_p1;
             m_p1 = m_p0;
             m_p0 = {id_gnd, sess_end, sess_vld, a_vbus_vld, host_disc};
@@ -373,9 +373,14 @@ module tb_usb_ulpi_reg_file;
             // ---- unmapped addresses and the extended set ----
             wr_reg(8'h20, 8'hFF); wr_reg(8'h3F, 8'hFF); wr_reg(8'h19, 8'hFF);
             rd_chk(0, 8'h20, 8'h00); rd_chk(0, 8'h3F, 8'h00); rd_chk(0, 8'h19, 8'h00);
-            wr_ext(8'h04, 8'hFF);  wr_ext(8'h16, 8'hFF);  wr_ext(8'h40, 8'hFF);
-            rd_chk(0, 8'h04, 8'h45); rd_chk(0, 8'h16, 8'h00);
-            rd_chk(1, 8'h04, 8'h00); rd_chk(1, 8'h16, 8'h00); rd_chk(1, 8'h00, 8'h00); rd_chk(1, 8'h40, 8'h00);
+            // extended 00h-3Fh mirror the immediate set, 40h-FFh are empty
+            wr_ext(8'h16, 8'hA5);  wr_ext(8'h40, 8'hFF);  wr_ext(8'hFF, 8'hFF);
+            rd_chk(0, 8'h16, 8'hA5); rd_chk(1, 8'h16, 8'hA5);
+            rd_chk(1, 8'h04, 8'h45); rd_chk(1, 8'h00, 8'h24); rd_chk(1, 8'h03, 8'h00);
+            rd_chk(1, 8'h40, 8'h00); rd_chk(1, 8'hFF, 8'h00); rd_chk(1, 8'h2F, 8'h00);
+            wr_reg(8'h16, 8'h3C);  rd_chk(1, 8'h16, 8'h3C);
+            wr_ext(8'h18, 8'h0C);  rd_chk(0, 8'h16, 8'h30);             // ext CLR alias
+            wr_reg(8'h16, 8'h00);  rd_chk(1, 8'h16, 8'h00);
 
             // ---- interrupt status, latch, clear on read ----
             wr_reg(8'h0D, 8'h02);                                       // rising VbusValid only
