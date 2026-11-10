@@ -125,11 +125,27 @@ Every testbench checks its own results and ends with `TEST PASSED`, `TEST FAILED
 
 `tb_usb_ulpi_phy_pads` tests register access to the whole digital section through the pads. A Link model clocked by the CLK pin works only on the chip pins. It checks the whole register map against a shadow model, including aliases, RO and unmapped addresses, the extended set and its mirror, and status / latch / debug. It also checks the configuration outputs, RXCMD content, Link retries caused by background RXCMDs, the pad wiring, the NAND tree, the protection pulls and RESETB. Build it with `-DDISPLAY_PD_PU_EN`; without that define it still runs but skips the pull checks.
 
+### AFE behavioural models
+
+The analog front end is not part of this repository, but its behaviour is modelled for the digital testbenches (`AFE_INTEGRATION_PLAN.md`, phase A1). The models are testbench-only Verilog (`afe_*_bm.v`, real-valued, not synthesizable; `run_synth.sh` never reads them):
+
+| Model | Block |
+|---|---|
+| `afe_line_bm` | DP / DM wires: sums the Norton contributions of all drivers and loads and solves the node voltage |
+| `afe_term_bm` | 1.5 kΩ pull-ups, 45 Ω HS terminations, 15 kΩ pull-downs |
+| `afe_hs_tx_bm` | HS current driver (`TX_IN_P/N`, `TX_EN`): 17.78 mA, settling time, P/N skew detection, amplitude trim |
+| `afe_hs_rx_bm` | HS Schmitt-trigger receiver (`RX_OUT_P/N`) with hysteresis, offset and noise |
+| `afe_squelch_bm` | Squelch (125 mV) and HS disconnect (575 mV) detectors with response times |
+| `afe_cdr_bm` | Bang-bang (Alexander) CDR: free-running VCO with ppm offset, phase steps, sampling ambiguity, retimed data output |
+| `afe_fsls_bm` | FS / LS drivers with slew-rate ramps, single-ended and differential receivers |
+
+Their testbenches: `tb_afe_line` (USB 2.0 levels: HS 400 mV, chirp 800 mV, SE0, FS / LS idle, rise times), `tb_afe_hs_rx` (receiver, squelch, disconnect), `tb_afe_cdr` (CDR lock time and tracking statistics) and `tb_afe_hs_chain` (the full HS receive chain into two `usb_rx_datapath` instances with `HS_ZMIN` 6 / 4, packets with shortened SYNC as behind hubs, checked with the Link's PID and CRC16 checks).
+
 Copy the integration testbenches' file lists from their headers.
 
 ## Project status
 
-- ✅ The TX path and the RX datapath are complete. All 22 testbenches pass with Icarus Verilog.
+- ✅ The TX path and the RX datapath are complete. All 26 testbenches (22 for the RTL, 4 for the AFE behavioural models) pass with Icarus Verilog.
 - ✅ Pad wrapper `usb_ulpi_phy_pads` (BBSUD8F cells), verified for register access at the pins.
 - ⏳ The RX datapath is not wired into `usb_ulpi_phy_top` yet; that happens with the full top level.
 - ⏳ Line-state detection, mode/termination control, OTG/VBUS control, clock/reset/power management and the AFE interface are still to be written. See [WORK_PLAN.md](WORK_PLAN.md).

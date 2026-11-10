@@ -166,7 +166,7 @@ These extend `WORK_PLAN.md`; the phase numbers in brackets point there.
 | `afe_hs_rx_bm` | Differential receiver with threshold and hysteresis; output delay. |
 | `afe_cdr_bm` | Bang-bang CDR: VCO at 480 MHz × (1 + ppm), free-running when there is no data, phase steps per transition, lock after a configurable number of bits, wrong bits before lock, jitter. |
 | `afe_squelch_bm`, `afe_fsls_bm`, `afe_term_bm` | Squelch with response delay; FS/LS drivers / receivers with slew delay; termination states. |
-| `usb_line_model` | DP / DM with both ends' drivers and terminations, resolving the line voltage (Verilog `real` variables in Icarus), so attach, chirp, SE0 and HS idle can be checked by level. |
+| `afe_line_bm` | DP / DM with both ends' drivers and terminations, resolving the line voltage (Verilog reals carried as `$realtobits` buses), so attach, chirp, SE0 and HS idle can be checked by level. (Named `afe_*` rather than `usb_*` so that synthesis never reads it.) |
 
 Each model is correlated with the analog team's SPICE results: a sign-off table with the simulated value, the model parameter and the corner for every item in section 3 (delays, lock time, hysteresis, settling, levels).
 
@@ -177,7 +177,7 @@ Each model is correlated with the analog team's SPICE results: a sign-off table 
 | Phase | Content | Depends on | Done when |
 |---|---|---|---|
 | **A0 — Interface specification** (started 2026-11-10: draft 0.1 of `DOC/afe_interface_spec.md` with the pin list, proposed timing, reset / isolation values, and the measured SYNC budget and 480 MHz timing; waiting for the analog team's answers Q1–Q14) | Answer I1–I12 with the analog team; freeze the AFE pin list, polarities, timing (setup / hold, delays, lock time), supplies and reset values in an interface spec (`DOC/afe_interface_spec.md`); update the `afe_interface` diagram. | — | Signed-off pin list and timing table; decisions recorded in section 4 and in `WORK_PLAN.md` (D1 confirmed or changed). |
-| **A1 — Behavioural models** | The models of 5.3, with parameters from A0; unit TBs per model. | A0 (first draft is enough) | Models reproduce the sign-off table values. |
+| **A1 — Behavioural models** (started 2026-11-10: all models of 5.3 written (`afe_*_bm.v`) with `tb_afe_line`, `tb_afe_hs_rx`, `tb_afe_cdr`, `tb_afe_hs_chain`; parameters are A0 proposals until the analog sign-off values arrive; CDR lock statistics and the `HS_ZMIN` check in `DOC/afe_interface_spec.md` 4.2) | The models of 5.3, with parameters from A0; unit TBs per model. | A0 (first draft is enough) | Models reproduce the sign-off table values. |
 | **A2 — HS TX integration** | `usb_afe_tx_if`; TB: `usb_tx_path` → `usb_afe_tx_if` → `afe_hs_tx_bm` → line model → reference decoder; lead / lag, idle clamp, polarity, P/N skew check. | A1, WORK_PLAN 6.1 | HS packets decode correctly at the line; `TX_EN` timing matches the spec. |
 | **A3 — HS RX integration** | `usb_afe_rx_if`, squelch-based `hs_cdr_lock`; TB: line model → `afe_hs_rx_bm` → `afe_cdr_bm` → `usb_rx_datapath`; shortened SYNC (12 bits), ±1000 ppm, lock-time sweep, squelch timing. | A1, I1, I2 | Every packet with a ≥ 12-bit SYNC is received; the lock-time margin is documented. |
 | **A4 — Clocking and lock** | `usb_clk_gen`, `usb_pll_lock_det`, `REFSEL` handling, PLL / CDR enables; TB with a PLL model (lock time, loss of lock, reference frequency error). | A0 (I6, I7), WORK_PLAN 5.2 / 5.3 | Lock / loss of lock detected within spec; `CLKOUT` starts and stops glitch-free. |

@@ -143,6 +143,18 @@ Requirements (TBC with Q1 / Q2):
 | Squelch assertion after the line goes idle | < 8 bit times after the EOP (the digital ends the packet on squelch; a slower squelch is fine, but it delays rearming SYNC detection) |
 | CDR frequency tracking | ±1000 ppm (host ±500, own ±500). The digital elastic buffer covers this for 1027-byte packets (`tb_usb_rx_datapath`). |
 
+**CDR model results (phase A1, `tb_afe_cdr`, `afe_cdr_bm`: bang-bang loop, random start phase, ±1000 ppm, 300 bursts per cell; L = bits until every sample is correct):**
+
+| Loop step | Data jitter 0 UI | 0.15 UI (70 % eye) | 0.25 UI (50 % eye) |
+|---|---|---|---|
+| UI/32 (65 ps) | worst 0, mean 0.00 | worst 13, mean 0.40, L > 6 in 2.3 % | worst 51, mean 2.20, L > 6 in 12.3 % |
+| UI/16 (130 ps, default) | worst 3, mean 0.01 | worst 9–16, mean 0.3–0.6, L > 4 in 1–5 %, L > 6 in 0.3–3 % | worst 26, mean 1.03, L > 6 in 4.3 % |
+| UI/8 (260 ps) | worst 4, mean 0.03 | worst 8, mean 0.21, L > 6 in 0.7 % | does not track (L > 6 in 48 %) |
+
+The mean lock time is well below one bit, but there is a tail: when the packet starts with the sampling phase inside the jittered edge zone, the phase detector's decisions are random and the loop random-walks before it escapes. So with a 70 % eye, about 1–5 % of packets with a 12-bit SYNC miss the 4-bit budget of `HS_ZMIN` = 6. A larger step shortens the tail but stops tracking at 50 % eye. The real CDR needs this statistic from transistor-level simulation (Q2): the worst case alone is not enough.
+
+**Full HS receive chain (`tb_afe_hs_chain`, all models, two `usb_rx_datapath` instances with `HS_ZMIN` 6 and 4, 200 packets per case, 70 % eye):** with a 32-bit SYNC every packet is received by both. With a 16- or 12-bit SYNC, 0.5–1.5 % of the packets are lost or flagged with `HS_ZMIN` = 6 and 0–0.5 % with `HS_ZMIN` = 4. A bad bit before lock can end SYNC detection early; the packet then ends at a false EOP, sometimes without `rx_error`. Such packets were always rejected by the Link's PID check / CRC16, and no wrong packet passed them. So `HS_ZMIN` = 4 does not create undetected errors in this model and lowers the loss; these figures rest on few events, and a longer run is pending.
+
 `hs_cdr_lock` (Proposed): the digital asserts it `LOCK_DLY` bit times after `hs_squelch` falls (register, 0–7, default 0 if the CDR delivers clean bits from squelch release, else the measured lock time), and drops it with squelch.
 
 ### 4.3 PLL lock
@@ -244,4 +256,4 @@ Answers are needed in this form: value, corner, and the simulation it comes from
 - Answers to Q1–Q14, then version 1.0 of this document (milestone AM1).
 - Update the `DOC/Diagramm/afe_interface` diagram with the final pin names (after the answers, to avoid redrawing twice).
 - Real STA of the 480 MHz paths (section 7.2).
-- False-SYNC check for `HS_ZMIN` = 4 with a CDR model that produces bad bits before lock (A1 / A3).
+- ~~False-SYNC check for `HS_ZMIN` = 4~~: done in A1 with `tb_afe_hs_chain` (section 4.2): no undetected errors, lower loss than `HS_ZMIN` = 6. A longer statistical run is pending before `HS_ZMIN` is changed.

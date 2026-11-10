@@ -18,7 +18,7 @@
 
 ### 2.1 Already implemented
 
-These blocks exist in RTL. All 22 testbenches pass with Icarus Verilog.
+These blocks exist in RTL. All 22 RTL testbenches (plus 4 for the AFE behavioural models, 2026-11-10) pass with Icarus Verilog.
 
 | Diagram block | RTL module(s) | Status |
 |---|---|---|
