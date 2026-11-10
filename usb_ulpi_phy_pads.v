@@ -28,8 +28,17 @@
 //   * DATA[7:0] have weak pull-downs while the protection is on and the PHY is not
 //     driving the bus (ulpi_data_oe = 0), so a floating bus reads 00h.
 //   Writing Interface Control bit 7 = 1 switches both off.  DIR, NXT, CLK and RESETB
-//   have no pulls.  The holding state itself (ignore DATA while STP is unexpectedly
-//   high) is not implemented in the core yet.
+//   have no pulls.  The holding state that goes with the STP pull-up (ignore DATA and
+//   keep DIR low while STP is unexpectedly high) is in usb_ulpi_core.
+//   Compared with the USB3320 (datasheet DS00001792, Digital IO table and section on
+//   the Link start-up): its STP pull-up is switched the same way; its DATA pull-downs
+//   are on in ULPI synchronous mode regardless of the protect bit.  Here they follow
+//   the protect bit and are off while the PHY drives DATA, which ULPI 1.1 also allows
+//   (the pull-downs are optional, and the protect bit may switch them off) and saves
+//   current.  RESETB has no pull, like the USB3320 (the Link must drive it).
+//   Open: the BBSUD8F pull polarity is taken from the simulation model only (work
+//   plan D8), and the USB3320 tri-states its ULPI outputs while RESETB is low, whereas
+//   here DIR / NXT / CLK stay driven during reset (work plan D9).
 //
 // Reset
 //   PAD_RESETB is active low.  It resets the core asynchronously and is released

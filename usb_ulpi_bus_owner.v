@@ -34,6 +34,13 @@
 //   is just presenting a TXCMD that was not acknowledged yet, the PHY wins the
 //   collision: DIR rises, the Link withdraws the TXCMD and repeats it after DIR falls.
 //
+// Register read (rd_turn, from usb_ulpi_reg_access)
+//   rd_turn = 1 in the tick the NXT on the pin consumes the last byte of a register
+//   read.  The bus owner then goes to TURN_P at the end of that tick, although NXT is
+//   high (the usual tx_ok rule would wait): ULPI 1.1 Figures 22 / 30 require DIR in the
+//   cycle right after that NXT.  The read data is handed over (arb_*) in the TURN_P tick
+//   and is on the bus in the next one.
+//
 // NXT
 //   In the LINK state NXT = tx_nxt_n | reg_nxt_n (registered here).  It is forced
 //   low in the tick the PHY takes the bus and in the first LINK tick after a
@@ -55,6 +62,7 @@ module usb_ulpi_bus_owner (
     input  wire        tx_nxt_n,     // usb_tx_holding
     input  wire        reg_nxt_n,    // Register Access FSM (tie to 0 until it exists)
     input  wire        tx_busy,      // usb_tx_holding busy
+    input  wire        rd_turn,      // register read: take the bus now (see above)
 
     // PHY byte bursts
     input  wire        arb_valid,
@@ -99,7 +107,7 @@ module usb_ulpi_bus_owner (
         rdy  = 1'b0;
         case (st)
             S_LINK: begin
-                if (want && tx_ok)
+                if (rd_turn || (want && tx_ok))
                     st_n = S_TURN_P;
             end
             S_TURN_P: begin

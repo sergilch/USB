@@ -26,7 +26,25 @@
 //   * the bus owner never takes the bus while either of them is active;
 //   * between the acknowledge of a register read and its data (rd_pend) the burst mux
 //     starts no PHY burst, so the read data is the first byte after the turnaround and
-//     a pending RXCMD goes out after it.
+//     a pending RXCMD goes out after it; the read itself is fixed-latency (rd_turn, see
+//     usb_ulpi_reg_access): turnaround in the cycle after the last NXT, then the data.
+//
+// ULPI holding state (ULPI 1.1 section 3.12)
+//   STP high while the Link owns the bus and neither a TX packet nor a register
+//   transfer is in progress (so nothing expects an STP) means the Link cannot drive the
+//   interface (reset, power-up, tri-stated outputs held by the STP pull-up of the pads):
+//   * the captured byte of such a cycle is not a command (cmd_ok = 0): no TXCMD, no
+//     register command is decoded or acknowledged;
+//   * the PHY does not take the bus (DIR stays low), checked against the captured STP
+//     and against the STP on the pin, so DIR cannot rise in the cycle after STP rose.
+//     RXCMD changes meanwhile are not sent; the RXCMD Generator compares against what
+//     the Link was told last, so a single RXCMD with the current values goes out when
+//     the holding state ends.
+//   The holding state ends with the first cycle in which STP is low: its data is
+//   processed normally ("the PHY begins processing its data inputs in the cycle when
+//   dir and stp are both low").  An STP that ends a transfer is expected, so it does not
+//   enter the holding state; an STP that is held longer than that (ULPI Fig. 55: the
+//   Link drives STP high before it stops driving) does.
 //
 // Still open: the Output Arbiter / RX Data Handler / RXCMD Generator (they drive
 // arb_*), the low-power controller (dir_hold) and the Register File itself.
@@ -100,7 +118,8 @@ module usb_ulpi_core #(
     wire       tx_nxt_n, hold_busy, dp_busy;
     // register access
     wire       reg_nxt_n, reg_link_busy, reg_busy;
-    wire       rg_burst_valid, rg_burst_ready, rg_rd_pend;
+    wire       xfer_busy, holding, cmd_ok;
+    wire       rg_burst_valid, rg_burst_ready, rg_rd_pend, rg_rd_turn;
     wire [7:0] rg_burst_data;
     // burst mux -> bus owner
     wire       m_valid, m_is_data, m_ready;
@@ -140,7 +159,7 @@ module usb_ulpi_core #(
         .speed       (speed),
         .bypass_en   (bypass_en),
         .sync_dis    (sync_dis),
-        .cmd_tx      (cmd_tx && !reg_link_busy),     // not while a register transfer is running
+        .cmd_tx      (cmd_tx && !reg_link_busy && cmd_ok),  // not while a register transfer runs
         .cmd_pid     (cmd_pid),
         .lnk_valid   (lnk_valid),
         .lnk_data    (lnk_data),
@@ -163,8 +182,8 @@ module usb_ulpi_core #(
         .clk            (clk_bit),
         .rst_n          (rst_n),
         .ce             (ce60),
-        .cmd_regw       (cmd_regw),
-        .cmd_regr       (cmd_regr),
+        .cmd_regw       (cmd_regw && cmd_ok),
+        .cmd_regr       (cmd_regr && cmd_ok),
         .cmd_ext        (cmd_ext),
         .cmd_addr       (cmd_addr),
         .lnk_valid      (lnk_valid),
@@ -187,6 +206,7 @@ module usb_ulpi_core #(
         .rd_burst_data  (rg_burst_data),
         .rd_burst_ready (rg_burst_ready),
         .rd_pend        (rg_rd_pend),
+        .rd_turn        (rg_rd_turn),
         .busy           (reg_busy)
     );
 
@@ -214,7 +234,8 @@ module usb_ulpi_core #(
         .ce          (ce60),
         .tx_nxt_n    (tx_nxt_n),
         .reg_nxt_n   (reg_nxt_n),
-        .tx_busy     (hold_busy | reg_link_busy),
+        .tx_busy     (hold_busy | reg_link_busy | holding),
+        .rd_turn     (rg_rd_turn),
         .arb_valid   (m_valid),
         .arb_data    (m_data),
         .arb_is_data (m_is_data),
@@ -231,5 +252,10 @@ module usb_ulpi_core #(
     assign ulpi_data_out = data_q;
     assign ulpi_data_oe  = oe_q;
     assign busy          = dp_busy | reg_busy;
+
+    // ---------------- ULPI holding state ----------------
+    assign xfer_busy = hold_busy | reg_busy;              // a transfer that may end with STP
+    assign cmd_ok    = !(lnk_stp && !xfer_busy);          // captured cycle had STP unexpectedly high
+    assign holding   = (lnk_stp || stp_raw) && !xfer_busy;
 
 endmodule

@@ -13,8 +13,9 @@
 //     outputs and the interrupt latch (enabled / masked edges, clear on read).  They run
 //     with ce = 1 always and with ce = 1 tick in 8.
 //   * Random lockstep test: random reads / writes / status changes (ce always, one in 8,
-//     random 50 %) against an independently written reference model; after every tick
-//     rd_valid, reg_rdata, soft_reset and all configuration outputs must match.
+//     random 50 %) against an independently written reference model; the read answer
+//     (rd_valid = reg_rd, reg_rdata) is checked in the read tick itself; after every tick
+//     soft_reset and all configuration outputs must match.
 //-----------------------------------------------------------------------------
 `timescale 1ns/1ps
 
@@ -94,8 +95,6 @@ module tb_usb_ulpi_reg_file;
     reg       m_rst;
     reg [4:0] m_p0, m_p1, m_p2, m_latch;
     reg [1:0] m_l0, m_l1;
-    reg [7:0] m_rdata;
-    reg       m_rdv;
     reg       model_on = 1'b0;
 
     reg [7:0] mv, mnew, mcur, mmask;
@@ -118,7 +117,7 @@ module tb_usb_ulpi_reg_file;
         if (!rst_n) begin
             m_fc = 8'h45; m_ic = 8'h00; m_otg = 8'h06; m_ier = 8'h1F; m_ief = 8'h1F; m_scr = 8'h00;
             m_rst = 1'b0; m_p0 = 5'd0; m_p1 = 5'd0; m_p2 = 5'd0; m_l0 = 2'd0; m_l1 = 2'd0;
-            m_latch = 5'd0; m_rdata = 8'd0; m_rdv = 1'b0;
+            m_latch = 5'd0;
         end else if (ce) begin
             // events of this tick
             mev = 5'd0;
@@ -184,8 +183,18 @@ module tb_usb_ulpi_reg_file;
             m_p0 = {id_gnd, sess_end, sess_vld, a_vbus_vld, host_disc};
             m_l1 = m_l0;
             m_l0 = linestate;
-            m_rdv = reg_rd;
-            if (reg_rd) m_rdata = mv;
+            // the read answer is combinational: compare it in the read tick itself
+            // (pre-edge values; the DUT registers update after this block)
+            if (rst_n && model_on) begin
+                if (rd_valid !== reg_rd) begin
+                    errors = errors + 1;
+                    $display("ERROR @%0t: rd_valid = %b, reg_rd = %b (same-tick answer expected)", $time, rd_valid, reg_rd);
+                end
+                if (reg_rd && (reg_rdata !== mv)) begin
+                    errors = errors + 1;
+                    $display("ERROR @%0t: reg_rdata = %02h, model %02h", $time, reg_rdata, mv);
+                end
+            end
             model_on = 1'b1;
         end
     end
@@ -195,14 +204,6 @@ module tb_usb_ulpi_reg_file;
     always @(negedge clk) begin
         if (rst_n && model_on) begin
             lock_checks = lock_checks + 1;
-            if (rd_valid !== m_rdv) begin
-                errors = errors + 1;
-                $display("ERROR @%0t: rd_valid = %b, model %b", $time, rd_valid, m_rdv);
-            end
-            if (reg_rdata !== m_rdata) begin
-                errors = errors + 1;
-                $display("ERROR @%0t: reg_rdata = %02h, model %02h", $time, reg_rdata, m_rdata);
-            end
             if ((xcvrselect !== m_fc[1:0]) || (termselect !== m_fc[2]) || (opmode !== m_fc[4:3]) ||
                 (suspendm !== m_fc[6]) || (soft_reset !== m_rst)) begin
                 errors = errors + 1;
@@ -217,6 +218,9 @@ module tb_usb_ulpi_reg_file;
 
     // ---------------- directed access tasks ----------------
     // One-tick pulse: applied at a falling edge, sampled by the next ce edge, removed afterwards.
+    // p_rdv / p_rdata: the read answer at that edge (same-tick answer, pre-edge values).
+    reg       p_rdv;
+    reg [7:0] p_rdata;
     task pulse(input wr, input rd, input ext, input [7:0] addr, input [7:0] wdata);
         begin
             @(negedge clk);
@@ -227,6 +231,8 @@ module tb_usb_ulpi_reg_file;
             reg_wdata = wdata;
             @(posedge clk);
             while (!ce) @(posedge clk);
+            p_rdv   = rd_valid;
+            p_rdata = reg_rdata;
             @(negedge clk);
             reg_wr = 1'b0;
             reg_rd = 1'b0;
@@ -245,17 +251,17 @@ module tb_usb_ulpi_reg_file;
         end
     endtask
 
-    // read and compare; the result is visible right after the sampling edge
+    // read and compare; the answer is valid in the read tick itself (same-tick answer)
     task rd_chk(input ext, input [7:0] addr, input [7:0] expected);
         begin
             pulse(1'b0, 1'b1, ext, addr, 8'h00);
-            if (rd_valid !== 1'b1) begin
+            if (p_rdv !== 1'b1) begin
                 errors = errors + 1;
-                $display("ERROR @%0t: no rd_valid after a read of %s%02h", $time, ext ? "ext " : "", addr);
+                $display("ERROR @%0t: no rd_valid in the tick of a read of %s%02h", $time, ext ? "ext " : "", addr);
             end
-            if (reg_rdata !== expected) begin
+            if (p_rdata !== expected) begin
                 errors = errors + 1;
-                $display("ERROR @%0t: read %s%02h = %02h, expected %02h", $time, ext ? "ext " : "", addr, reg_rdata, expected);
+                $display("ERROR @%0t: read %s%02h = %02h, expected %02h", $time, ext ? "ext " : "", addr, p_rdata, expected);
             end
         end
     endtask

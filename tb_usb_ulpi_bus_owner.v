@@ -17,7 +17,10 @@
 //     (tx_busy = 0, no NXT on the pin in that and the previous tick, no NXT request);
 //   * NXT pass-through: in the Link-owned state NXT = tx_nxt_n | reg_nxt_n of the
 //     previous tick;
-//   * dir_hold keeps DIR high without driving the bus, and bursts still go through.
+//   * dir_hold keeps DIR high without driving the bus, and bursts still go through;
+//   * register read (rd_turn in the tick the read NXT is on the pin): DIR rises at the
+//     end of that tick although NXT is high, the byte handed over in the turnaround tick
+//     is on the bus in the next one, and DIR falls after it (ULPI 1.1 Fig. 22).
 //
 //   ce_mode : 0 = always, 1 = one tick in eight, 2 = random 50 %
 //-----------------------------------------------------------------------------
@@ -34,6 +37,7 @@ module tb_usb_ulpi_bus_owner;
     reg        tx_nxt_n    = 1'b0;
     reg        reg_nxt_n   = 1'b0;
     reg        tx_busy     = 1'b0;
+    reg        rd_turn     = 1'b0;
     reg        arb_valid   = 1'b0;
     reg [7:0]  arb_data    = 8'd0;
     reg        arb_is_data = 1'b0;
@@ -49,6 +53,7 @@ module tb_usb_ulpi_bus_owner;
         .tx_nxt_n    (tx_nxt_n),
         .reg_nxt_n   (reg_nxt_n),
         .tx_busy     (tx_busy),
+        .rd_turn     (rd_turn),
         .arb_valid   (arb_valid),
         .arb_data    (arb_data),
         .arb_is_data (arb_is_data),
@@ -139,6 +144,7 @@ module tb_usb_ulpi_bus_owner;
     reg       prev_dir   = 1'b0;
     integer   nxt_zero   = 0;            // ticks after DIR fell in which NXT must stay low
     reg       txbusy_p = 1'b0, nxt_p = 1'b0, nxt_pp = 1'b0, txn_p = 1'b0, regn_p = 1'b0;
+    reg       rdturn_p = 1'b0;
     reg       chk_pass   = 1'b0;         // NXT pass-through check (phase A)
     reg       pass_exp   = 1'b0;
     reg       pass_valid = 1'b0;
@@ -179,7 +185,7 @@ module tb_usb_ulpi_bus_owner;
                     errors = errors + 1;
                     $display("ERROR @%0t: bus driven in the first DIR tick (no turnaround)", $time);
                 end
-                if (txbusy_p || nxt_p || nxt_pp || txn_p || regn_p) begin
+                if (!rdturn_p && (txbusy_p || nxt_p || nxt_pp || txn_p || regn_p)) begin
                     errors = errors + 1;
                     $display("ERROR @%0t: DIR rose while the TX side was active (busy=%b nxt=%b nxt_prev=%b txn=%b regn=%b)",
                              $time, txbusy_p, nxt_p, nxt_pp, txn_p, regn_p);
@@ -223,8 +229,47 @@ module tb_usb_ulpi_bus_owner;
             txbusy_p = tx_busy;
             txn_p    = tx_nxt_n;
             regn_p   = reg_nxt_n;
+            rdturn_p = rd_turn;
         end
     end
+
+    // one tick (ce edge), inputs applied at the falling edge after it
+    task wait_tick;
+        begin
+            @(posedge clk);
+            while (!ce) @(posedge clk);
+            @(negedge clk);
+        end
+    endtask
+
+    // register read: NXT acknowledge, rd_turn with NXT on the pin, the data byte
+    task reg_read_turn;
+        begin
+            reg_nxt_n = 1'b1;  wait_tick;  reg_nxt_n = 1'b0;     // tick N: NXT on the pin
+            if (nxt_q !== 1'b1 || dir_q !== 1'b0) begin
+                errors = errors + 1;
+                $display("ERROR @%0t: read NXT not on the pin (nxt %b dir %b)", $time, nxt_q, dir_q);
+            end
+            rd_turn = 1'b1;
+            wait_tick;                                            // tick N+1
+            rd_turn = 1'b0;
+            if (dir_q !== 1'b1 || oe_q !== 1'b0) begin
+                errors = errors + 1;
+                $display("ERROR @%0t: no turnaround in the tick after rd_turn (dir %b oe %b)", $time, dir_q, oe_q);
+            end
+            send_burst(1, 0);                                     // consumed in N+1
+            if (dir_q !== 1'b1 || oe_q !== 1'b1) begin
+                errors = errors + 1;
+                $display("ERROR @%0t: read data not on the bus in the second tick after rd_turn", $time);
+            end
+            wait_tick;
+            if (dir_q !== 1'b0) begin
+                errors = errors + 1;
+                $display("ERROR @%0t: DIR still high after the read data", $time);
+            end
+            repeat (3) wait_tick;
+        end
+    endtask
 
     // ---------------- stimulus ----------------
     integer cm, p, nb;
@@ -305,6 +350,12 @@ module tb_usb_ulpi_bus_owner;
                 $display("ERROR @%0t: DIR still high after dir_hold was released", $time);
             end
             hold_mode = 1'b0;
+            @(negedge clk);
+
+            // ---- E: register read turnaround ----
+            $display("E: register read with rd_turn");
+            repeat (4) reg_read_turn;
+            wait_all_delivered;
             @(negedge clk);
         end
 

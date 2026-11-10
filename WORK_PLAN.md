@@ -1,6 +1,6 @@
 # Work Plan — Fully Functional Digital Section of the USB 2.0 ULPI PHY
 
-*Based on `usb_phy_ulpi_digital_description.md`, the detailed diagrams in `DOC/Diagramm/` (`usb_phy_ulpi_digital`, `ulpi_interface_controller`, `ulpi_register_file`, `afe_interface`) and the RTL in the repository root as of 2026-11-08. Updated 2026-11-10 for the pad wrapper, the register-access fixes and the follow-ups they raised (Phase 1A).*
+*Based on `usb_phy_ulpi_digital_description.md`, the detailed diagrams in `DOC/Diagramm/` (`usb_phy_ulpi_digital`, `ulpi_interface_controller`, `ulpi_register_file`, `afe_interface`) and the RTL in the repository root as of 2026-11-08. Updated 2026-11-10 for the pad wrapper, the register-access fixes and Phase 1A (ULPI interface follow-ups).*
 
 ---
 
@@ -23,14 +23,15 @@ These blocks exist in RTL. All 22 testbenches pass with Icarus Verilog.
 | Diagram block | RTL module(s) | Status |
 |---|---|---|
 | ULPI Interface Controller: input capture, TXCMD decoder | `usb_ulpi_input_capture` | Done, unit-tested |
-| ULPI Interface Controller: bus-owner FSM, output registers | `usb_ulpi_bus_owner` | Done, unit-tested |
-| ULPI Interface Controller: register access FSM | `usb_ulpi_reg_access` | Done; covered by the integration TBs. 2026-11-10: new `rd_pend` output (read acknowledged, data not ready) |
+| ULPI Interface Controller: bus-owner FSM, output registers | `usb_ulpi_bus_owner` | Done, unit-tested. 2026-11-10: `rd_turn` (DIR right after the read NXT) |
+| ULPI holding state (STP unexpectedly high) | `usb_ulpi_core` | Done 2026-11-10 (Phase 1A.3); covered by `tb_usb_ulpi_phy_pads` |
+| ULPI Interface Controller: register access FSM | `usb_ulpi_reg_access` | Done; covered by the integration TBs. 2026-11-10: `rd_pend`; fixed-latency read (`rd_turn`, ULPI Fig. 22 / 30), Phase 1A.1 |
 | ULPI Interface Controller: RX data handler, RXCMD generator, output arbiter | `usb_ulpi_rx_handler`, `usb_ulpi_rxcmd_gen`, `usb_ulpi_out_arbiter`, `usb_ulpi_rx_path` | Done; covered by `tb_usb_ulpi_phy_if` |
 | Register read data merge | `usb_ulpi_burst_mux` | Done. 2026-11-10 fix: no PHY burst starts while `rd_pend` = 1. Before, a pending RXCMD went out in the read-data cycle, ahead of the register byte. Found by `tb_usb_ulpi_phy_pads` |
 | TX Holding Reg / Ctrl | `usb_tx_holding` | Done, unit-tested |
 | Bit Stuffer | `usb_bit_stuffer` | Done, unit-tested |
 | Serializer 8:1 + EOP Gen | `usb_tx_serializer` | Done, unit-tested |
-| ULPI Register File (immediate map 00h–18h, mirrored at extended 00h–3Fh) | `usb_ulpi_reg_file` | Done, unit-tested. 2026-11-10 fix: extended 00h–3Fh now reach the immediate registers (ULPI 1.1 §4); before, they read 00h and ignored writes. It is the only register file in the design (`u_core.u_rf`) |
+| ULPI Register File (immediate map 00h–18h, mirrored at extended 00h–3Fh) | `usb_ulpi_reg_file` | Done, unit-tested. 2026-11-10 fix: extended 00h–3Fh now reach the immediate registers (ULPI 1.1 §4); before, they read 00h and ignored writes. Reads are answered in the same tick (needed for the fixed read timing). It is the only register file in the design (`u_core.u_rf`) |
 | SYNC + PID/Data Mux | `usb_tx_sync_mux` | Done, unit-tested (added 2026-11-08) |
 | NRZI Encoder | `usb_nrzi_encoder` | Done, unit-tested (added 2026-11-08) |
 | TX path wrapper (stuffer → NRZI → serializer, underrun discard) | `usb_tx_path` | Done, unit-tested (added 2026-11-08) |
@@ -56,10 +57,7 @@ These blocks exist in RTL. All 22 testbenches pass with Icarus Verilog.
 | DFT / Test Modes | Not implemented: loopback, analog test mux control, scan and BIST hooks. |
 | Register file extras | Extended 40h–FFh read 00h; Carkit (19h–1Fh) and vendor/trim registers (30h–3Fh) are not implemented; Interface Control bits are stored but have no effect. |
 | Top level | There is no `usb_phy_ulpi_digital` top level that ties the PHY core to the AFE interface. `usb_ulpi_phy_pads` currently wraps `usb_ulpi_phy_top` only. |
-| ULPI register read timing | The PHY raises DIR 2–3 ticks after the NXT that acknowledges a RegRead (reg_access RREQ → RWAIT → RRET). ULPI 1.1 Figure 22 shows DIR in the very next cycle. Links that wait for DIR work; Links with fixed timing do not (D7). |
-| ULPI holding state | Not implemented (ULPI 1.1 §3.12): STP unexpectedly high → do not interpret DATA, do not raise DIR, send one merged RXCMD when leaving. The STP pull-up and DATA pull-downs exist in `usb_ulpi_phy_pads`. |
-| Pad wrapper | The pull pin polarity of BBSUD8F (pull-up at PUEN = 0, pull-down at PUEN = 1 / PDEN = 0) comes from the simulation model only, not checked against the X-FAB datasheet (D8). The output cells are not switched to input mode for the NAND-tree test. RESETB has no pull. The X-FAB files (`BBSUD8F.v`, `VLG_PRIMITIVES.v`, `IO_CELLS_JIF3V.v`) are not in the public repo, so `tb_usb_ulpi_phy_pads` only runs where a local PDK copy exists. |
-| Testbench gap | `tb_usb_ulpi_core` did not catch the RXCMD-before-read-data bug. Its Link model finds the read data through internal signals and does not treat the first byte after the turnaround as the read data. |
+| Pad wrapper | The pull pin polarity of BBSUD8F (pull-up at PUEN = 0, pull-down at PUEN = 1 / PDEN = 0) comes from the simulation model only, not checked against the X-FAB datasheet (D8). DIR / NXT / CLK stay driven while RESETB is low; the USB3320 tri-states them (D9). The output cells are not switched to input mode for the NAND-tree test. The X-FAB files (`BBSUD8F.v`, `VLG_PRIMITIVES.v`, `IO_CELLS_JIF3V.v`) are not in the public repo, so `tb_usb_ulpi_phy_pads` only runs where a local PDK copy exists. |
 
 ---
 
@@ -75,8 +73,9 @@ Some points in the description don't match the RTL or the ULPI/UTMI+ model. They
 | D4 | **OpMode 10 framing** | NRZI is "bypassed in chirp and test modes". | The RTL bypasses stuffing and NRZI but still sends SYNC and EOP (`sync_dis` = 0, no EOP-suppress input on the serializer). | Check ULPI 1.1 / UTMI+ for what is sent in OpMode `10`, then drive `sync_dis` and an EOP-suppress control from Mode Control. |
 | D5 | **Carkit / serial modes** | The register map lists the Interface Control bits FsLsSerialMode 6-pin / 3-pin, CarkitMode and Indicator*. | Stored, no effect. | Declare them out of scope for the first release: readable and writable, no effect, documented. Add them later if a target Link needs serial mode. |
 | D6 | **"idle 00h" output** | The arbiter priority list ends with "4) idle 00h". | `usb_ulpi_out_arbiter` ends the burst instead (DIR falls); ULPI has no idle byte while DIR = 1. | Keep the RTL behaviour and update the diagram text. |
-| D7 | **Register read timing** | ULPI 1.1 Figure 22: DIR rises in the cycle after the NXT that acknowledges RegRead, and the data follows in the next cycle. | DIR rises only once the register file has answered, 2–3 ticks after NXT. | Make the read path fixed-latency: answer the register file combinationally or in the same tick, take the bus right after the acknowledge, and return the data in the next tick. Check against the USB3320 datasheet timing, then make the Link models strict (Phase 1A). |
-| D8 | **BBSUD8F pull control** | — | The model pulls up at PUEN = 0 and pulls down at PUEN = 1, PDEN = 0. That polarity is unusual for a pin named "enable". | Confirm it in the X-FAB IO_CELLS_JIF3V datasheet before tape-out. If the model is wrong, invert `stp_puen` / `data_pden` in `usb_ulpi_phy_pads`. |
+| D7 | **Register read timing** | ULPI 1.1 Figures 22 / 30: DIR rises in the cycle after the NXT that consumes the last byte of the read, and the data follows in the next cycle. | Was: DIR in N+4, data in N+5 (the register file answered one tick after a request that started only after the acknowledge). | ✅ Resolved 2026-11-10 (1A.1): turnaround in N+1, data in N+2, DIR low in N+3. The register file answers in the same tick, and the bus owner takes the bus on `rd_turn` although NXT is high. The strict Link models check this. |
+| D8 | **BBSUD8F pull control** | — | The model pulls up at PUEN = 0 and pulls down at PUEN = 1, PDEN = 0. That polarity is unusual for a pin named "enable". | Open: confirm it in the X-FAB IO_CELLS_JIF3V databook before tape-out (not available in the repo or on the build machine). If the model is wrong, invert `stp_puen` / `data_pden` in `usb_ulpi_phy_pads`. |
+| D9 | **ULPI outputs during reset** | ULPI 1.1 §3.12: during power-up or while the clock is not running the PHY asserts DIR. USB3320: while RESETB is low, all ULPI outputs are tri-stated. | `usb_ulpi_phy_pads` drives DIR = 0, NXT = 0 and CLK while RESETB is low. | Decide with the clock / reset work (Phase 5.1 / 5.4): tri-state DIR / NXT / CLK (EN = 1) while RESETB or POR is active (USB3320 behaviour), and hold DIR high from the release of reset until the PLL is locked (ULPI). |
 
 ---
 
@@ -109,9 +108,15 @@ Size: **S** ≈ one small module + testbench, **M** ≈ a few modules or one com
 
 **Done when:** all nine existing testbenches pass.
 
-### Phase 1A — ULPI interface follow-ups (S–M)
+### Phase 1A — ULPI interface follow-ups (S–M) — ✅ 1A.1–1A.3 done 2026-11-10, 1A.4 partly (D8 open)
 
-Raised by `tb_usb_ulpi_phy_pads` (2026-11-10). They depend on nothing else and can start now.
+Raised by `tb_usb_ulpi_phy_pads` (2026-11-10).
+
+Results:
+- **1A.1:** the read timing at the pins was NXT in N, DIR in N+4, data in N+5; it is now turnaround in N+1, data in N+2, DIR low in N+3, for immediate and extended reads. `usb_ulpi_reg_access` reads in the turnaround tick, from the captured command or address byte, and drops its request / wait states. `usb_ulpi_reg_file` answers in the same tick. `usb_ulpi_bus_owner` has the new `rd_turn` input.
+- **1A.2:** the Link models in `tb_usb_ulpi_core` and `tb_usb_ulpi_phy_pads` take the read data from the pins and check the cycle timing; `tb_usb_ulpi_bus_owner` has a directed `rd_turn` case, and `tb_usb_ulpi_reg_file` checks the same-tick answer. `tb_usb_ulpi_phy_if` has no register reads (its register file inputs are tied off), so nothing changed there. The old RTL fails the strict TBs.
+- **1A.3:** holding state in `usb_ulpi_core`: with STP high outside a transfer, no command is decoded or acknowledged and DIR stays low; the pending RXCMD changes go out as one RXCMD when STP falls. Tested in `tb_usb_ulpi_phy_pads` with STP driven high (command-like bytes on DATA), STP held high after a register write, and a tri-stated Link with the pad pull-up; the TB fails if the holding logic is removed.
+- **1A.4:** against the USB3320 datasheet: the STP pull-up behaves the same; the DATA pull-downs differ but within ULPI 1.1 (kept, documented in the wrapper); no RESETB pull, as on the USB3320. The BBSUD8F polarity (D8) needs the X-FAB databook. New finding D9 (outputs during reset), moved to Phase 5.
 
 | # | Deliverable |
 |---|---|
@@ -120,7 +125,7 @@ Raised by `tb_usb_ulpi_phy_pads` (2026-11-10). They depend on nothing else and c
 | 1A.3 | **ULPI holding state** (§3.12): STP high while the PHY does not expect it → ignore DATA, keep DIR low, collect RXCMD changes into one RXCMD after leaving. Add a TB case in which the Link tri-states its outputs and the pad pulls hold STP high. |
 | 1A.4 | **Pad wrapper review**: confirm the BBSUD8F pull polarity (D8), decide on a RESETB pull, and confirm the DATA pull-down condition (now: protection on and PHY not driving) against the USB3320. |
 
-**Done when:** all TBs pass with the strict Link models, and D7 / D8 are closed.
+**Done when:** all TBs pass with the strict Link models, and D7 / D8 are closed. Status: all 22 TBs pass; D7 closed; D8 waits for the X-FAB databook.
 
 ### Phase 2 — RX datapath (L) — ✅ done 2026-11-08
 
@@ -167,7 +172,7 @@ The chain from the diagram, with the interface to `usb_ulpi_rx_path` that alread
 
 | ID | Task |
 |---|---|
-| 5.1 | **Reset synchronizers**: `RESETB` / POR → `rst_n` per domain (`clk_bit`, recovered clock), async assert / sync release, held until `pll_lock` and `pwr_good`. The `clk_bit` synchronizer for the RESETB pin already exists in `usb_ulpi_phy_pads` (`core_rst_n`); POR, `pll_lock`, `pwr_good` and the recovered-clock domain are still open. |
+| 5.1 | **Reset synchronizers**: `RESETB` / POR → `rst_n` per domain (`clk_bit`, recovered clock), async assert / sync release, held until `pll_lock` and `pwr_good`. The `clk_bit` synchronizer for the RESETB pin already exists in `usb_ulpi_phy_pads` (`core_rst_n`); POR, `pll_lock`, `pwr_good` and the recovered-clock domain are still open. Includes the pad behaviour during reset (D9). |
 | 5.2 | **`ce60` generator**: divide `clk_bit` by 8, phase-aligned with the `clk60` the PLL sends to `CLKOUT`. It is currently a top-level input. |
 | 5.3 | **PLL / CDR control**: `refsel[1:0]` → divider code (19.2 / 24 / 26 MHz), `pll_en` / `cdr_en` sequencing, lock sync + lock filter, loss-of-lock flag. |
 | 5.4 | **Power sequencer**: `pwr_good` → `bias_en` → `pll_en` → wait for lock → release reset → `iso_en` off; suspend sequence (TX, HS RX and PLL off; FS/LS receiver, squelch and resume detect stay on). |
@@ -230,7 +235,7 @@ Phase 0 ─┐
          └─► Phase 6 (AFE interface) ─► Phase 7 ────┘
 ```
 
-- **Phase 1A** has no dependencies. Do 1A.1 / 1A.2 before the system TB (8.2) so that its Link model can be strict from the start.
+- **Phase 1A** is done apart from D8. The system TB (8.2) should reuse the strict Link model of `tb_usb_ulpi_phy_pads`.
 - **Critical path:** Phase 1 → Phase 2 → Phase 8. Phase 1 comes first because it unblocks the three integration TBs that already exist.
 - Phases 3–6 depend only on Phase 0 and the existing register file, so they can run in parallel with Phase 2.
 - Decisions **D1/D2** are needed before Phase 2.1/2.6; **D3/D4** before Phase 3.4/3.5; the trim register map (6.4) needs input from the analog team.

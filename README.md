@@ -9,7 +9,8 @@ The analog front end and the line-state, VBUS and ID detectors are **not** part 
 ## Features
 
 - **ULPI 1.1 PHY-side interface:** DIR / NXT / STP / DATA[7:0], with bus turnaround, NXT pacing and TXCMD decoding.
-- **Register access:** immediate (00h–3Fh) and extended (AFh / EFh, pointer 2Fh) register reads and writes. Register read data is always the first byte after the turnaround; pending RXCMDs wait until it has been sent.
+- **Register access:** immediate (00h–3Fh) and extended (AFh / EFh, pointer 2Fh) register reads and writes. Register reads follow the fixed ULPI timing (turnaround in the cycle after the last NXT, data in the next one), and pending RXCMDs wait until the read data has been sent.
+- **Interface protection:** ULPI holding state. While STP is high outside a transfer, no command is taken and DIR stays low; the RXCMD changes meanwhile go out as one RXCMD when STP falls.
 - **Register file:** Vendor/Product ID, Function Control, Interface Control, OTG Control, USB Interrupt Enable Rising/Falling, Status, Latch, Debug and Scratch, with SET/CLR aliases. Extended addresses 00h–3Fh mirror the immediate set (ULPI 1.1 §4). VID/PID default to the USB3320 values (0424h / 0007h).
 - **Pad wrapper:** `usb_ulpi_phy_pads` puts the ULPI pins (CLK, DATA[7:0], DIR, NXT, STP) and RESETB on X-FAB xh018 `BBSUD8F` digital I/O cells, with the ULPI interface-protection pulls (STP pull-up, DATA pull-downs, switched by Interface Control bit 7), a RESETB synchronizer and a NAND-tree chain.
 - **TX path:** 4-byte holding FIFO → SYNC/PID mux → bit stuffer → NRZI encoder → serializer + EOP.

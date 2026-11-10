@@ -33,7 +33,10 @@
 //   Reserved bits read 0 and ignore writes.
 //
 // Register access interface (as in usb_ulpi_reg_access): reg_wr / reg_rd are one-tick
-// pulses; a read is answered one tick later with rd_valid (one tick) and reg_rdata.
+// pulses; a read is answered in the same tick: reg_rdata is combinational from
+// reg_addr / reg_ext and rd_valid = reg_rd (the fixed ULPI read timing needs the value
+// in the turnaround tick).  The clear-on-read of the latch happens at the end of the
+// read tick.
 //
 // Status inputs go through a 2-FF synchronizer; the status register shows the
 // synchronized value.  VID / PID default to the USB3320 values (0424h / 0007h) - override
@@ -59,8 +62,8 @@ module usb_ulpi_reg_file #(
     input  wire        reg_ext,
     input  wire [7:0]  reg_addr,
     input  wire [7:0]  reg_wdata,
-    output reg  [7:0]  reg_rdata,
-    output reg         rd_valid,
+    output wire [7:0]  reg_rdata,
+    output wire        rd_valid,
 
     // status inputs
     input  wire        host_disc,
@@ -180,8 +183,6 @@ module usb_ulpi_reg_file #(
             l0        <= 2'd0;
             l1        <= 2'd0;
             latch_q   <= 5'd0;
-            reg_rdata <= 8'd0;
-            rd_valid  <= 1'b0;
         end else if (ce) begin
             // synchronizer, edge detector
             s0 <= stat_in;
@@ -205,13 +206,12 @@ module usb_ulpi_reg_file #(
             if (wr_i && hit_ier) ier_q <= upd(ier_q, reg_wdata, d_ier[1:0], IE_MASK);
             if (wr_i && hit_ief) ief_q <= upd(ief_q, reg_wdata, d_ief[1:0], IE_MASK);
             if (wr_i && hit_scr) scr_q <= upd(scr_q, reg_wdata, d_scr[1:0], 8'hFF);
-
-            // read answer, one tick later
-            rd_valid <= reg_rd;
-            if (reg_rd)
-                reg_rdata <= rmux;
         end
     end
+
+    // ---------------- read answer (same tick) ----------------
+    assign reg_rdata = rmux;
+    assign rd_valid  = reg_rd;
 
     // ---------------- outputs ----------------
     assign xcvrselect = fc_q[1:0];

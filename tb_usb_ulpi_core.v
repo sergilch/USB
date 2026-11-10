@@ -13,20 +13,25 @@
 //       - TX packets          TXCMD, payload, STP
 //       - register write      RegWrite cmd, data, STP
 //       - ext. register write cmd AFh, address, data, STP
-//       - register read       RegRead cmd, then waits for the PHY to return the data
-//       - ext. register read  cmd EFh, address, then waits
+//       - register read       RegRead cmd, then the turnaround and the data, strictly
+//                             timed (see below)
+//       - ext. register read  cmd EFh, address, then the same
 //     Every byte is held on the bus until NXT = 1 consumes it.  The Link releases the
 //     bus when it sees DIR = 1 and repeats a command that was not acknowledged yet (the
 //     PHY wins the collision); it reports an error if DIR rises inside a transfer or if
 //     NXT is high while the Link has nothing on the bus.
 //   * register data bytes / addresses are often chosen to look like TXCMD / register
 //     commands (40h, 4Fh, 80h, AFh, C0h, EFh, 2Fh ...), TX payload bytes are random;
-//   * a behavioural Register File (immediate 64 bytes and extended 256 bytes, read
-//     latency 1..4 ticks) answers reg_rd / reg_wr;
+//   * a behavioural Register File (immediate 64 bytes and extended 256 bytes, answer in
+//     the same tick as reg_rd, as usb_ulpi_reg_access requires) answers reg_rd / reg_wr;
 //   * a PHY burst source (arb_*) competes for the bus.
 // Checked
 //   * register contents at the end equal a shadow model; every read returns the value
 //     that the shadow model predicts at that point of the sequence;
+//   * register read timing at the pins (ULPI 1.1 Fig. 22 / 30), the Link takes the data
+//     from the pins only: the NXT that consumes the last byte of the read (command or
+//     extended address) in tick N, turnaround in N+1, the data with NXT = 0 in N+2,
+//     DIR low in N+3;
 //   * the bytes on the DIR/NXT/DATA pins are exactly the bytes handed over by the burst
 //     mux, in order, with the right NXT marker; a register data byte forms a burst of
 //     its own;
@@ -69,8 +74,8 @@ module tb_usb_ulpi_core;
 
     wire       reg_wr, reg_rd, reg_ext;
     wire [7:0] reg_addr, reg_wdata;
-    reg  [7:0] reg_rdata   = 8'd0;
-    reg        rd_valid    = 1'b0;
+    reg  [7:0] reg_rdata;
+    wire       rd_valid;
 
     wire       txd, tx_en, tx_se0;
     wire [1:0] tx_speed;
@@ -114,46 +119,23 @@ module tb_usb_ulpi_core;
     integer seed    = 32'h5C5C_5C5C;
     integer seed_lk = 32'h1A1A_1A1A;
     integer seed_rx = 32'h2B2B_2B2B;
-    integer seed_rf = 32'h3C3C_3C3C;
 
     // ---------------- behavioural Register File ----------------
+    // Same-tick answer, as usb_ulpi_reg_access requires: reg_rdata combinational from
+    // reg_addr / reg_ext, rd_valid = reg_rd.  (Its extended space is a separate memory;
+    // the mirror of 00h-3Fh is a property of usb_ulpi_reg_file, not of the core.)
     reg [7:0] mem_imm [0:63];
     reg [7:0] mem_ext [0:255];
     reg [7:0] sh_imm  [0:63];             // shadow model (expected contents)
     reg [7:0] sh_ext  [0:255];
-    integer   lat_min = 1;
-    integer   lat_max = 3;
-    integer   rf_dly  = 0;
-    integer   lat;
-    reg [7:0] rf_data;
 
-    always @(posedge clk_bit or negedge rst_n) begin
-        if (!rst_n) begin
-            rd_valid  <= 1'b0;
-            reg_rdata <= 8'd0;
-            rf_dly    = 0;
-        end else if (ce60) begin
-            rd_valid <= 1'b0;
-            if (reg_wr) begin
-                if (reg_ext) mem_ext[reg_addr]      = reg_wdata;
-                else         mem_imm[reg_addr[5:0]] = reg_wdata;
-            end
-            if (reg_rd) begin
-                rf_data = reg_ext ? mem_ext[reg_addr] : mem_imm[reg_addr[5:0]];
-                lat = lat_min + ({$random(seed_rf)} % (lat_max - lat_min + 1));
-                if (lat == 1) begin
-                    rd_valid  <= 1'b1;
-                    reg_rdata <= rf_data;
-                end else begin
-                    rf_dly = lat - 1;
-                end
-            end else if (rf_dly != 0) begin
-                if (rf_dly == 1) begin
-                    rd_valid  <= 1'b1;
-                    reg_rdata <= rf_data;
-                end
-                rf_dly = rf_dly - 1;
-            end
+    assign rd_valid = reg_rd;
+    always @* reg_rdata = reg_ext ? mem_ext[reg_addr] : mem_imm[reg_addr[5:0]];
+
+    always @(posedge clk_bit) begin
+        if (rst_n && ce60 && reg_wr) begin
+            if (reg_ext) mem_ext[reg_addr]      = reg_wdata;
+            else         mem_imm[reg_addr[5:0]] = reg_wdata;
         end
     end
 
@@ -189,7 +171,9 @@ module tb_usb_ulpi_core;
     integer   op_head = 0;
     integer   op_tail = 0;
 
-    integer   lk_state = 0;               // 0 idle, 1 cmd, 2 data, 3 STP, 4 wait for read data
+    integer   lk_state = 0;               // 0 idle, 1 cmd, 2 data, 3 STP, 4 read turnaround / data
+    integer   rd_t     = 0;               // ticks since the NXT that ended a read
+    integer   lk_rd    = 0;               // read data bytes taken by the Link
     integer   lk_idx   = 0;
     integer   lk_gap   = 0;
     integer   lk_retries = 0;
@@ -202,6 +186,40 @@ module tb_usb_ulpi_core;
             lk_stp  <= 1'b0;
         end else if (ce60) begin
             h = op_head % 256;
+            // strict register read timing (ULPI 1.1 Fig. 22 / 30), pins only: NXT for the
+            // last byte in tick N, turnaround (DIR = 1, bus not driven) in N+1, the data
+            // with NXT = 0 in N+2, DIR low in N+3
+            if (lk_state == 4) begin
+                rd_t = rd_t + 1;
+                if (rd_t == 1) begin
+                    if (!(ulpi_dir && !ulpi_data_oe)) begin
+                        errors = errors + 1;
+                        $display("ERROR @%0t: no turnaround in the cycle after the read NXT (dir %b oe %b)", $time, ulpi_dir, ulpi_data_oe);
+                    end
+                end else if (rd_t == 2) begin
+                    if (!(ulpi_dir && ulpi_data_oe)) begin
+                        errors = errors + 1;
+                        $display("ERROR @%0t: no read data in the second cycle after the read NXT", $time);
+                    end else begin
+                        if (ulpi_nxt) begin
+                            errors = errors + 1;
+                            $display("ERROR @%0t: NXT high with the register read data", $time);
+                        end
+                        if (ulpi_data_out !== exp_rd[lk_rd]) begin
+                            errors = errors + 1;
+                            $display("ERROR @%0t: Link read %0d got %02h at the pins, expected %02h", $time, lk_rd, ulpi_data_out, exp_rd[lk_rd]);
+                        end
+                    end
+                    lk_rd = lk_rd + 1;
+                end else if ((rd_t == 3) && ulpi_dir) begin
+                    errors = errors + 1;
+                    $display("ERROR @%0t: DIR still high in the third cycle after the read NXT", $time);
+                end else if (rd_t > 40) begin
+                    errors = errors + 1;
+                    $display("ERROR @%0t: register read never finished", $time);
+                    rd_t = 3;
+                end
+            end
             if (ulpi_dir) begin
                 if ((lk_state == 2) || (lk_state == 3)) begin
                     errors = errors + 1;
@@ -243,6 +261,7 @@ module tb_usb_ulpi_core;
                             end else begin
                                 lk_data <= 8'd0;
                                 lk_state = 4;
+                                rd_t     = 0;
                             end
                         end
                     end
@@ -256,6 +275,7 @@ module tb_usb_ulpi_core;
                                     lk_state = 3;
                                 end else begin
                                     lk_state = 4;
+                                    rd_t     = 0;
                                 end
                             end else begin
                                 lk_data <= op_by[h * 64 + lk_idx];
@@ -269,9 +289,9 @@ module tb_usb_ulpi_core;
                         lk_state = 0;
                         lk_gap   = link_gaps ? ({$random(seed_lk)} % 5) : 0;
                     end
-                    default: begin                  // waiting for the register data
+                    default: begin                  // read: done once DIR fell after the data
                         lk_data <= 8'd0;
-                        if (ret_seen) begin
+                        if (rd_t >= 3) begin
                             ret_seen = 1'b0;
                             op_head  = op_head + 1;
                             lk_state = 0;
@@ -763,7 +783,7 @@ module tb_usb_ulpi_core;
         q_wr(6'h04, 8'h41);          q_rd(6'h04);                   // value that looks like a PID TXCMD
         q_wr(6'h07, 8'h80);          q_rd(6'h07);                   // looks like a register write
         q_wr(6'h0A, 8'hEF);          q_rd(6'h0A);                   // looks like an extended read
-        q_wx(8'h10, 8'hAF);          q_rx(8'h10);                   // extended space is separate
+        q_wx(8'h10, 8'hAF);          q_rx(8'h10);                   // separate ext memory in this TB's RF model
         q_rd(6'h10);                                                // immediate 10h still 0
         q_wx(8'h40, 8'h4F);          q_rx(8'h40);                   // address byte looks like a TXCMD
         q_wx(8'hEF, 8'hC0);          q_rx(8'hEF);
@@ -783,8 +803,6 @@ module tb_usb_ulpi_core;
             set_cfg(2'b00, 1'b0, 1'b0);
             link_gaps = (g % 2);
             rx_gaps   = (g % 3) != 0;
-            lat_min   = 1;
-            lat_max   = 1 + (g % 4);
             for (p = 0; p < 8; p = p + 1) begin
                 rand_op(1, 16);
                 if (p % 2) rand_burst;
@@ -792,13 +810,11 @@ module tb_usb_ulpi_core;
             finish_all;
         end
 
-        $display("HS streaming: no gaps anywhere, register read latency 1");
+        $display("HS streaming: no gaps anywhere");
         for (g = 0; g < 3; g = g + 1) begin
             set_cfg(2'b00, 1'b0, 1'b0);
             link_gaps = 1'b0;
             rx_gaps   = 1'b0;
-            lat_min   = 1;
-            lat_max   = 1;
             for (p = 0; p < 8; p = p + 1) begin
                 rand_op(1, 24);
                 if (p % 3 == 0) rand_burst;
@@ -811,8 +827,6 @@ module tb_usb_ulpi_core;
             set_cfg(2'b01, 1'b0, 1'b0);
             link_gaps = 1'b1;
             rx_gaps   = 1'b1;
-            lat_min   = 1;
-            lat_max   = 4;
             for (p = 0; p < 6; p = p + 1) begin
                 rand_op(1, 8);
                 if (p % 2) rand_burst;
@@ -836,6 +850,10 @@ module tb_usb_ulpi_core;
         if (done_cnt != q_tail) begin
             errors = errors + 1;
             $display("ERROR: tx_done pulses = %0d, packets = %0d", done_cnt, q_tail);
+        end
+        if (lk_rd != exp_rd_n) begin
+            errors = errors + 1;
+            $display("ERROR: %0d register reads queued, %0d taken by the Link at the pins", exp_rd_n, lk_rd);
         end
         if (rd_cnt != exp_rd_n) begin
             errors = errors + 1;

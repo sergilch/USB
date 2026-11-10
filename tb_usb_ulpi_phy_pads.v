@@ -26,7 +26,10 @@
 // errors (DIR inside a transfer, NXT with nothing on the bus, RX data bytes, missing
 // read data).  It runs the register commands
 //   RegWrite (80h | a) data STP,  extended write AFh addr data STP,
-//   RegRead  (C0h | a) -> turnaround -> data,  extended read EFh addr -> data.
+//   RegRead  (C0h | a) -> turnaround -> data,  extended read EFh addr -> data,
+// and holds the PHY to the read timing of ULPI 1.1 Fig. 22 / 30: the NXT that consumes
+// the last byte (command or address) in cycle N, turnaround in N+1, the data in N+2,
+// DIR low in N+3.
 // Checked
 //   * every read returns what a shadow model of the register map predicts (reset values,
 //     write / SET / CLR aliases, reserved bits, RO registers, unmapped and extended
@@ -43,6 +46,10 @@
 //     the core, the NAND-tree output equals the NAND chain of the pin levels, the Link and
 //     the PHY never drive DATA at the same time, and (with DISPLAY_PD_PU_EN) STP is pulled
 //     up and DATA down while Interface Protect Disable = 0, and both float when it is 1;
+//   * ULPI holding state (ULPI 1.1 section 3.12): with STP high while the Link idles
+//     (driven high with command-like bytes on DATA, held high after a register write,
+//     or pulled up while the Link is tri-stated) no command is taken and DIR / NXT stay
+//     low; status changes meanwhile produce exactly one RXCMD when STP falls;
 //   * RESETB: asynchronous reset of the core, release two clk_bit edges after the pin,
 //     all registers back at their reset values.
 //-----------------------------------------------------------------------------
@@ -238,13 +245,31 @@ module tb_usb_ulpi_phy_pads;
     integer   op_done   = 0;
     integer   rd_phase  = 0;                 // 0 wait for DIR, 1 turnaround seen, 2 data taken
     integer   rd_wait   = 0;
+    integer   rd_t      = 0;                 // CLK periods since the NXT that ended a read
     integer   retries   = 0;
     integer   rxcmds    = 0;
     integer   rxcmds_chk = 0;
     integer   stat_age  = 0;                 // CLK periods since the last status change
     reg       s_dir, s_nxt, p_dir = 1'b0;
+
+    // ULPI holding state (ULPI 1.1 section 3.12): hold_mode makes the Link drive STP high
+    // (and command-like bytes on DATA) while idle; a released STP (pull-up) also counts
+    reg       hold_mode = 1'b0;
+    integer   hold_k    = 0;
+    integer   hold_cnt  = 0;                 // CLK periods with STP high while the Link idles
+    integer   hold_cyc  = 0;                 // total, for the report
+    integer   hold_viol = 0;
     reg [7:0] s_data;
     reg [7:0] exp_rxcmd;
+
+    // bytes that the PHY must not interpret while STP is high
+    function [7:0] hold_pat;
+        input integer k;
+        case (k % 7)
+            0: hold_pat = 8'h96;  1: hold_pat = 8'hFF;  2: hold_pat = 8'hD6;  3: hold_pat = 8'h41;
+            4: hold_pat = 8'hAF;  5: hold_pat = 8'h16;  default: hold_pat = 8'hEF;
+        endcase
+    endfunction
 
     function [7:0] cmd_of;
         input integer t;
@@ -262,6 +287,38 @@ module tb_usb_ulpi_phy_pads;
         s_nxt  = PAD_ULPI_NXT;
         s_data = PAD_ULPI_DATA;
         stat_age = stat_age + 1;
+
+        // strict read timing (ULPI 1.1 Fig. 22 / 30): NXT for the last byte in cycle N,
+        // turnaround in N+1, the data in N+2, DIR low in N+3
+        if (resetb && core_rst_n && (lk_state == L_WRD)) begin
+            rd_t = rd_t + 1;
+            if ((rd_t == 1) && !((s_dir === 1'b1) && !p_dir)) begin
+                errors = errors + 1;
+                $display("ERROR @%0t: DIR = %b in the cycle after the read NXT, expected the turnaround", $time, s_dir);
+            end
+            if ((rd_t == 2) && !((s_dir === 1'b1) && p_dir)) begin
+                errors = errors + 1;
+                $display("ERROR @%0t: no read data in the second cycle after the read NXT", $time);
+            end
+            if ((rd_t == 3) && (s_dir !== 1'b0)) begin
+                errors = errors + 1;
+                $display("ERROR @%0t: DIR still high in the third cycle after the read NXT", $time);
+            end
+        end
+
+        // holding state: no DIR, no NXT once STP has been high for two cycles
+        if (resetb && core_rst_n && (lk_state == L_IDLE) && (PAD_ULPI_STP === 1'b1) &&
+            (hold_mode || !lk_stp_drv)) begin
+            hold_cnt = hold_cnt + 1;
+            hold_cyc = hold_cyc + 1;
+            if ((hold_cnt > 2) && ((s_dir !== 1'b0) || (s_nxt !== 1'b0) || (tx_en !== 1'b0))) begin
+                errors = errors + 1;
+                hold_viol = hold_viol + 1;
+                $display("ERROR @%0t: holding state (STP high): DIR %b NXT %b tx_en %b", $time, s_dir, s_nxt, tx_en);
+            end
+        end else begin
+            hold_cnt = 0;
+        end
 
         if (!resetb || !core_rst_n) begin
             lk_state = L_IDLE;
@@ -332,13 +389,17 @@ module tb_usb_ulpi_phy_pads;
                     if (op_issued != op_done) begin
                         lk_data <= #(TCO) cmd_of(op_type, op_addr);
                         lk_state = L_CMD;
+                    end else if (hold_mode) begin
+                        lk_stp  <= #(TCO) 1'b1;
+                        lk_data <= #(TCO) hold_pat(hold_k);
+                        hold_k  = hold_k + 1;
                     end
                 end
                 L_CMD: if (s_nxt === 1'b1) begin
                     case (op_type)
                         OP_WR:   begin lk_data <= #(TCO) op_wdata; lk_state = L_DATA; end
                         OP_RD:   begin lk_data <= #(TCO) 8'h00;    lk_state = L_WRD;
-                                       rd_phase = 0; rd_wait = 0; end
+                                       rd_phase = 0; rd_wait = 0; rd_t = 0; end
                         default: begin lk_data <= #(TCO) op_addr;  lk_state = L_ADDR; end
                     endcase
                 end
@@ -351,6 +412,7 @@ module tb_usb_ulpi_phy_pads;
                         lk_state = L_WRD;
                         rd_phase = 0;
                         rd_wait  = 0;
+                        rd_t     = 0;
                     end
                 end
                 L_DATA: if (s_nxt === 1'b1) begin
@@ -359,7 +421,7 @@ module tb_usb_ulpi_phy_pads;
                     lk_state = L_STP;
                 end
                 L_STP: begin
-                    lk_stp  <= #(TCO) 1'b0;
+                    lk_stp  <= #(TCO) hold_mode;   // hold_mode: STP stays high (Fig. 55)
                     lk_state = L_IDLE;
                     op_done  = op_done + 1;
                 end
@@ -634,6 +696,63 @@ module tb_usb_ulpi_phy_pads;
         end
     endtask
 
+    // ---------------- holding-state test ----------------
+    // mode 0: STP driven high while idle, command-like bytes on DATA
+    // mode 1: a register write whose STP stays high (Link about to stop driving)
+    // mode 2: the Link stops driving STP and DATA (the pad pull-up holds STP high)
+    // While STP is high: no command is taken, DIR / NXT stay low (monitor above), RXCMD
+    // changes are not sent; when STP falls exactly one RXCMD with the current values.
+    task hold_test(input integer mode);
+        integer r0;
+        reg [7:0] scr;
+        begin
+            wait_clk(5);
+            scr = sh_scr;
+            r0  = rxcmds;
+            if (mode == 1) begin
+                hold_mode = 1'b1;
+                scr = 8'h5A ^ hold_k[7:0];
+                wr(6'h16, scr);                          // STP of the write stays high
+            end else if (mode == 2) begin
+                wait (PAD_ULPI_DIR === 1'b0);
+                @(posedge clk_bit);
+                while (!ce60) @(posedge clk_bit);
+                #(1.0);
+                lk_drv = 1'b0; lk_stp_drv = 1'b0;
+            end else begin
+                hold_mode = 1'b1;
+            end
+            wait_clk(4);
+            set_ls(2'b01);                               // RXCMD triggers while holding
+            set_ls(2'b10);
+            alt_int = 1'b1; stat_age = 0; wait_clk(6);
+            set_ls(2'b11);
+            wait_clk(10);
+            if (rxcmds != r0) begin
+                errors = errors + 1;
+                $display("ERROR @%0t: %0d RXCMD(s) sent in the holding state (mode %0d)", $time, rxcmds - r0, mode);
+            end
+            // leave the holding state
+            if (mode == 2) begin
+                lk_data = 8'h00; lk_stp = 1'b0;
+                lk_drv = 1'b1; lk_stp_drv = 1'b1;
+            end
+            hold_mode = 1'b0;
+            wait_clk(12);
+            if (rxcmds != r0 + 1) begin
+                errors = errors + 1;
+                $display("ERROR @%0t: %0d RXCMD(s) after the holding state (mode %0d), expected exactly 1", $time, rxcmds - r0, mode);
+            end
+            rd(6'h16);                                   // nothing was written meanwhile
+            if (sh_scr !== scr) begin
+                errors = errors + 1;
+                $display("ERROR: TB scratch bookkeeping");
+            end
+            alt_int = 1'b0; stat_age = 0;
+            set_ls(2'b00);
+        end
+    endtask
+
     // ---------------- main sequence ----------------
     integer i, k, t;
     reg [31:0] r, r2;
@@ -776,8 +895,17 @@ module tb_usb_ulpi_phy_pads;
         for (k = 0; k <= 8'h18; k = k + 1) rd(k);
         check_cfg;
 
-        // ---- 9. RESETB pin ----
-        $display("[9] RESETB");
+        // ---- 9. ULPI holding state ----
+        $display("[9] ULPI holding state");
+        hold_test(0);                                    // STP driven high, command-like DATA
+        hold_test(1);                                    // STP stays high after a register write
+`ifdef DISPLAY_PD_PU_EN
+        hold_test(2);                                    // Link tri-stated, STP pull-up
+`endif
+        rd(6'h16); rd(6'h04); rd(6'h07);
+
+        // ---- 10. RESETB pin ----
+        $display("[10] RESETB");
         wr(6'h16, 8'h5A); wr(6'h0A, 8'hAF); wr(6'h04, 8'h41);
         pin_reset;
         read_all;
@@ -802,7 +930,7 @@ module tb_usb_ulpi_phy_pads;
         $display("--------------------------------------------------");
         $display("register operations: %0d (%0d reads), Link retries: %0d", op_done, reads, retries);
         $display("RXCMDs at the pins: %0d (%0d checked), soft_reset pulses: %0d", rxcmds, rxcmds_chk, soft_reset_cnt);
-        $display("pad checks: %0d, NAND-tree checks: %0d", pad_checks, nand_checks);
+        $display("pad checks: %0d, NAND-tree checks: %0d, holding-state cycles: %0d", pad_checks, nand_checks, hold_cyc);
         if (errors == 0) $display("TEST PASSED");
         else             $display("TEST FAILED: %0d error(s)", errors);
         $display("--------------------------------------------------");

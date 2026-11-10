@@ -142,6 +142,7 @@ module usb_ulpi_tx_top #(
         .tx_nxt_n    (tx_nxt_n),
         .reg_nxt_n   (reg_nxt_n),
         .tx_busy     (hold_busy),
+        .rd_turn     (1'b0),
         .arb_valid   (arb_valid),
         .arb_data    (arb_data),
         .arb_is_data (arb_is_data),
