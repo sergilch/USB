@@ -60,7 +60,7 @@ Direction is seen from the digital core. "Reset" is the value while the digital 
 | `clk_rx` | CDR recovered clock | in | Bit clock of the HS receive chain | free-running / static (the receive chain is held in reset while isolated) | Fixed (RTL) |
 | `hs_rxd` | CDR retimed data (**New** output of the Alexander PD) | in | 1 = J, valid around the rising `clk_rx` edge (setup / hold section 4.2) | — / 1 | TBC (Q1, Q3) |
 | `hs_squelch` | `SQUELCH_A` (**New** block) | in | 1 = no HS signal (< 100 mV), 0 = signal (> 150 mV) | — / 1 | Fixed (USB 2.0 thresholds), timing TBC (Q2) |
-| `hs_cdr_lock` | — (generated digitally) | internal | Delay of `LOCK_DLY` bit times after squelch release (section 4.2) | 0 | Proposed |
+| `hs_cdr_lock` | — (generated digitally, `usb_afe_rx_if`) | internal | Delay of `LOCK_DLY` bit times after squelch release (section 4.2) | 0 | Proposed |
 | `rx_en_hs` | `RX_EN` (**New**) | out | HS receiver + squelch on (off in suspend and in FS/LS-only modes) | 0 / 0 | Proposed |
 | `cdr_en` | `CDR_EN` (**New**) | out | CDR upper loop on | 0 / 0 | Proposed |
 | — | `RX_VREF` | — | From the bias block (**New**) | — | TBC (Q9) |
@@ -159,7 +159,28 @@ The mean lock time is well below one bit, but there is a tail: when the packet s
 
 **Full HS receive chain (`tb_afe_hs_chain`, all models, two `usb_rx_datapath` instances with `HS_ZMIN` 6 and 4, 200 packets per case, 70 % eye):** with a 32-bit SYNC every packet is received by both. With a 16- or 12-bit SYNC, 0.5–1.5 % of the packets are lost or flagged with `HS_ZMIN` = 6 and 0–0.5 % with `HS_ZMIN` = 4. A bad bit before lock can end SYNC detection early; the packet then ends at a false EOP, sometimes without `rx_error`. Such packets were always rejected by the Link's PID check / CRC16, and no wrong packet passed them. So `HS_ZMIN` = 4 does not create undetected errors in this model and lowers the loss; these figures rest on few events, and a longer run is pending.
 
-`hs_cdr_lock` (Proposed): the digital asserts it `LOCK_DLY` bit times after `hs_squelch` falls (register, 0–7, default 0 if the CDR delivers clean bits from squelch release, else the measured lock time), and drops it with squelch.
+`hs_cdr_lock` (Proposed, implemented in `usb_afe_rx_if`, phase A3): the digital asserts it `LOCK_DLY` bit times after the synchronized `hs_squelch` falls (register, 0–7) and drops it with squelch. A second register, `SQ_COMP` (0–7), delays the data by that many extra bits against squelch / lock, so line bits that arrived before the squelch detector released are received too.
+
+**A3 results** (`tb_usb_afe_rx_if`, 300 packets per point, 12-bit SYNC unless noted; ideal CDR with the first L line bits replaced by random bits, i.e. a CDR that needs L bits to lock; squelch release 4 ns, hold 12 ns unless swept):
+
+| Setting | Largest L without loss (CDR lock-time margin) | Squelch release that still works | Model chain (`afe_cdr_bm`, 0.15 UI jitter), not received of 300: SYNC 32 / 16 / 12 |
+|---|---|---|---|
+| `HS_ZMIN` 6, `LOCK_DLY` 0 (current RTL default) | 4 bits | ≤ 12 ns (16 ns: all lost) | 0 / 3 / 2 |
+| `HS_ZMIN` 4, `LOCK_DLY` 0 | 4 bits (L = 5–6: ~6 % lost) | ≥ 16 ns | 0 / 1 / 0 |
+| **`HS_ZMIN` 4, `LOCK_DLY` 2 (recommended)** | **6 bits** | ≤ 12 ns | 0 / 1 / 0 |
+| `HS_ZMIN` 4, `LOCK_DLY` 4 | 6 bits | ≤ 8 ns | 0 / 2 / 0 |
+| `HS_ZMIN` 4, `SQ_COMP` 2 | 2 bits | ≥ 16 ns | 1 / 1 / 2 |
+| `HS_ZMIN` 6, `SQ_COMP` 2 | 4 bits | ≥ 16 ns | 0 / 3 / 2 |
+
+Findings:
+
+- Squelch release and CDR lock run in parallel, so they are not additive: up to a 12 ns squelch release costs nothing beyond the CDR's own lock bits. The 4-bit "squelch + lock" budget in the table above is therefore a budget for the **CDR alone** (`HS_ZMIN` 6), as long as the squelch releases within 12 ns.
+- Wrong bits before lock are the limit: random bits can look like the end of SYNC. `LOCK_DLY` hides them from the SYNC detector. With `HS_ZMIN` 4 and `LOCK_DLY` 2 the CDR may deliver up to **6 wrong bits** after the first line bit of a 12-bit SYNC (12.5 ns), against 4 with the current default. Requirement for Q2: **the CDR delivers correct bits no later than the 7th bit after the first transition, in every corner and for every start phase** (with the recommended setting).
+- `SQ_COMP` only helps when the squelch release is slower than about 12 ns (16 ns: `SQ_COMP` 2 recovers it). With a faster squelch it lets idle-line noise in front of SYNC; with `HS_ZMIN` 4 that produced false SYNCs and even lost a packet with a full SYNC. It also costs EOP margin (in the 30-packet sweep `SQ_COMP` 3 failed with a 6 ns squelch hold). Default 0.
+- `LOCK_DLY` + the squelch release must not eat too much of the SYNC: `LOCK_DLY` 4 fails with a 12 ns squelch. Rule of thumb for a 12-bit SYNC: squelch release / 2.08 ns + `LOCK_DLY` − `SQ_COMP` ≤ about 7 bits with `HS_ZMIN` 4.
+- Squelch hold after the line goes idle: 6 ns is enough for every setting with `SQ_COMP` ≤ 2 (32-bit SYNC, packets up to 64 bytes).
+- With the bang-bang CDR model at 0.15 UI jitter, the recommended setting still lost 1 of 600 packets with a shortened SYNC (16 / 12 bits). That is the CDR's lock tail (A1: worst case 9–16 bits), beyond any digital margin; no wrong packet was ever accepted (PID / CRC16 checks). The A3 goal "every packet with a ≥ 12-bit SYNC is received" therefore depends on the real CDR meeting the requirement above.
+- Recommendation: change the `HS_ZMIN` used for the PHY to 4 and the `LOCK_DLY` reset value to 2 (decision pending; the RTL default of `usb_rx_datapath` is still 6).
 
 ### 4.3 PLL lock
 
@@ -198,7 +219,7 @@ Trims sit behind the ULPI vendor registers (WORK_PLAN 6.4), one shadow register 
 | `SQ_VTH`, `DISC_VTH` | Squelch / disconnect thresholds | 3, 3 |
 | `CDR_ICP`, `CDR_BAND` | CDR charge-pump current, VCO band | 3, 2 |
 | `PLL_ICP` | PLL charge-pump current | 3 |
-| `LOCK_DLY` | Digital, section 4.2 | 3 |
+| `LOCK_DLY`, `SQ_COMP` | Digital, section 4.2 | 3, 3 |
 | `HS_TERM` | HS termination trim | 3 |
 
 ## 7. Digital-side facts measured in A0
@@ -261,4 +282,4 @@ Answers are needed in this form: value, corner, and the simulation it comes from
 - Answers to Q1–Q14, then version 1.0 of this document (milestone AM1).
 - Update the `DOC/Diagramm/afe_interface` diagram with the final pin names (after the answers, to avoid redrawing twice).
 - Real STA of the 480 MHz paths (section 7.2).
-- ~~False-SYNC check for `HS_ZMIN` = 4~~: done in A1 with `tb_afe_hs_chain` (section 4.2): no undetected errors, lower loss than `HS_ZMIN` = 6. A longer statistical run is pending before `HS_ZMIN` is changed.
+- ~~False-SYNC check for `HS_ZMIN` = 4~~: done in A1 with `tb_afe_hs_chain` and in A3 with `tb_usb_afe_rx_if` (300 packets per point, section 4.2): no undetected errors, lower loss than `HS_ZMIN` = 6; with `LOCK_DLY` 2 the lock-time margin grows from 4 to 6 bits. Changing the PHY's `HS_ZMIN` to 4 is recommended, decision pending.

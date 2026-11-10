@@ -12,6 +12,8 @@
 //            inactive for T_SQ_OFF (envelope hold: the differential voltage
 //            passes zero at every HS transition, so short gaps must not count).
 //            Both are inertial filters: shorter activity / gaps are ignored.
+//            T_ON / T_OFF are module variables (start values T_SQ_ON /
+//            T_SQ_OFF), so testbenches can sweep them hierarchically.
 //   disc   : 1 = disconnect envelope.  |DP - DM| > V_DISC (USB 2.0: 525-625 mV,
 //            default 575 mV) for T_DISC.  The host samples it during the HS EOP.
 //   en = 0 : squelch = 1, disc = 0 (isolated values).
@@ -42,10 +44,27 @@ module afe_squelch_bm #(
         disc_raw = (vd > V_DISC);
     end
 
-    // inertial filters: rise delay, fall delay
-    wire act_f, disc_f;
-    assign #(T_SQ_ON, T_SQ_OFF) act_f  = act_raw;
-    assign #(T_DISC, 0.0)       disc_f = disc_raw;
+    // squelch: inertial filter with run-time delays T_ON / T_OFF (module
+    // variables, so testbenches can sweep them).  Every change of act_raw
+    // schedules a check after the delay that applies to the new value; the
+    // output follows only if act_raw has not changed in between.
+    real    T_ON  = T_SQ_ON;
+    real    T_OFF = T_SQ_OFF;
+    real    t_chg = 0.0, t_need = 0.0;
+    integer n_chg = 0, chk = 0;
+    reg     act_f = 1'b0;
+    always @(act_raw) begin
+        t_chg  = $realtime;
+        t_need = act_raw ? T_ON : T_OFF;
+        n_chg  = n_chg + 1;
+        chk   <= #(t_need) n_chg;
+    end
+    always @(chk)
+        if ((chk == n_chg) && ($realtime - t_chg >= t_need - 1.0e-6)) act_f = act_raw;
+
+    // disconnect: fixed inertial rise delay
+    wire disc_f;
+    assign #(T_DISC, 0.0) disc_f = disc_raw;
 
     assign squelch = (en === 1'b1) ? !(act_f === 1'b1) : 1'b1;
     assign disc    = (en === 1'b1) ?  (disc_f === 1'b1) : 1'b0;

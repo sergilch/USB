@@ -143,15 +143,18 @@ Their testbenches: `tb_afe_line` (USB 2.0 levels: HS 400 mV, chirp 800 mV, SE0, 
 
 `tb_usb_afe_tx_if` (phase A2) runs the TX path into the analog TX boundary `usb_afe_tx_if` and on through `afe_hs_tx_bm`, `afe_fsls_bm`, terminations and the line model. It checks the AFE pins cycle by cycle against a reference model (`TX_EN` lead / lag, driver select, idle clamp, reset values), the line levels and polarity at HS / FS / LS, and decodes every packet from the line again. A lead sweep shows which `TX_LEAD` puts the whole SYNC on the line for a given driver settling time.
 
+`tb_usb_afe_rx_if` (phase A3) drives HS packets from a far transmitter through the line, the HS receiver and squelch models and either an ideal or the bang-bang CDR model into six `usb_afe_rx_if` + `usb_rx_datapath` pairs with different SYNC thresholds, lock delays and squelch compensation. It checks the boundary pins against a reference model and measures how many wrong bits the CDR may deliver at the start of a 12-bit SYNC, and how slow the squelch detector may be.
+
 Copy the integration testbenches' file lists from their headers.
 
 ## Project status
 
-- ✅ The TX path and the RX datapath are complete. All 27 testbenches (23 for the RTL, 4 for the AFE behavioural models) pass with Icarus Verilog.
+- ✅ The TX path and the RX datapath are complete. All 28 testbenches (24 for the RTL, 4 for the AFE behavioural models) pass with Icarus Verilog.
 - ✅ TX data boundary to the AFE (`usb_afe_tx_if`: retiming, HS / FS / LS driver select, `TX_EN` lead / lag, idle clamp), verified through the AFE models; not wired into the top level yet.
+- ✅ HS receive boundary to the AFE (`usb_afe_rx_if`: RX / CDR enables, isolation, squelch-based CDR lock, squelch-latency compensation), with the lock-time margin measured through the AFE models; not wired into the top level yet.
 - ✅ Pad wrapper `usb_ulpi_phy_pads` (BBSUD8F cells), verified for register access at the pins.
 - ⏳ The RX datapath is not wired into `usb_ulpi_phy_top` yet; that happens with the full top level.
-- ⏳ Line-state detection, mode/termination control, OTG/VBUS control, clock/reset/power management and the RX side of the AFE interface are still to be written. See [WORK_PLAN.md](WORK_PLAN.md).
+- ⏳ Line-state detection, mode/termination control, OTG/VBUS control, clock/reset/power management and the PLL / clocking side of the AFE interface are still to be written. See [WORK_PLAN.md](WORK_PLAN.md).
 - ⏳ Not implemented yet. These signals are exported, but no logic reacts to them:
   - OpMode `01` / `11` (driver disable)
   - `soft_reset`
