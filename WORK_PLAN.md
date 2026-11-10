@@ -1,6 +1,6 @@
 # Work Plan — Fully Functional Digital Section of the USB 2.0 ULPI PHY
 
-*Based on `usb_phy_ulpi_digital_description.md`, the detailed diagrams in `DOC/Diagramm/` (`usb_phy_ulpi_digital`, `ulpi_interface_controller`, `ulpi_register_file`, `afe_interface`) and the RTL in the repository root as of 2026-11-08.*
+*Based on `usb_phy_ulpi_digital_description.md`, the detailed diagrams in `DOC/Diagramm/` (`usb_phy_ulpi_digital`, `ulpi_interface_controller`, `ulpi_register_file`, `afe_interface`) and the RTL in the repository root as of 2026-11-08. Updated 2026-11-10 for the pad wrapper, the register-access fixes and the follow-ups they raised (Phase 1A).*
 
 ---
 
@@ -24,13 +24,13 @@ These blocks exist in RTL. All 22 testbenches pass with Icarus Verilog.
 |---|---|---|
 | ULPI Interface Controller: input capture, TXCMD decoder | `usb_ulpi_input_capture` | Done, unit-tested |
 | ULPI Interface Controller: bus-owner FSM, output registers | `usb_ulpi_bus_owner` | Done, unit-tested |
-| ULPI Interface Controller: register access FSM | `usb_ulpi_reg_access` | Done; covered by the integration TBs |
+| ULPI Interface Controller: register access FSM | `usb_ulpi_reg_access` | Done; covered by the integration TBs. 2026-11-10: new `rd_pend` output (read acknowledged, data not ready) |
 | ULPI Interface Controller: RX data handler, RXCMD generator, output arbiter | `usb_ulpi_rx_handler`, `usb_ulpi_rxcmd_gen`, `usb_ulpi_out_arbiter`, `usb_ulpi_rx_path` | Done; covered by `tb_usb_ulpi_phy_if` |
-| Register read data merge | `usb_ulpi_burst_mux` | Done |
+| Register read data merge | `usb_ulpi_burst_mux` | Done. 2026-11-10 fix: no PHY burst starts while `rd_pend` = 1. Before, a pending RXCMD went out in the read-data cycle, ahead of the register byte. Found by `tb_usb_ulpi_phy_pads` |
 | TX Holding Reg / Ctrl | `usb_tx_holding` | Done, unit-tested |
 | Bit Stuffer | `usb_bit_stuffer` | Done, unit-tested |
 | Serializer 8:1 + EOP Gen | `usb_tx_serializer` | Done, unit-tested |
-| ULPI Register File (immediate map 00h–18h, mirrored at extended 00h–3Fh) | `usb_ulpi_reg_file` | Done, unit-tested; mirror added 2026-11-10 |
+| ULPI Register File (immediate map 00h–18h, mirrored at extended 00h–3Fh) | `usb_ulpi_reg_file` | Done, unit-tested. 2026-11-10 fix: extended 00h–3Fh now reach the immediate registers (ULPI 1.1 §4); before, they read 00h and ignored writes. It is the only register file in the design (`u_core.u_rf`) |
 | SYNC + PID/Data Mux | `usb_tx_sync_mux` | Done, unit-tested (added 2026-11-08) |
 | NRZI Encoder | `usb_nrzi_encoder` | Done, unit-tested (added 2026-11-08) |
 | TX path wrapper (stuffer → NRZI → serializer, underrun discard) | `usb_tx_path` | Done, unit-tested (added 2026-11-08) |
@@ -55,7 +55,11 @@ These blocks exist in RTL. All 22 testbenches pass with Icarus Verilog.
 | AFE Interface (digital) | Not implemented: TX retiming, RX capture, receiver status sync and glitch filter, termination output ordering, PLL/CDR control, power sequencer, trim/enable registers. |
 | DFT / Test Modes | Not implemented: loopback, analog test mux control, scan and BIST hooks. |
 | Register file extras | Extended 40h–FFh read 00h; Carkit (19h–1Fh) and vendor/trim registers (30h–3Fh) are not implemented; Interface Control bits are stored but have no effect. |
-| Top level | There is no `usb_phy_ulpi_digital` top level that ties the PHY core to the AFE interface. |
+| Top level | There is no `usb_phy_ulpi_digital` top level that ties the PHY core to the AFE interface. `usb_ulpi_phy_pads` currently wraps `usb_ulpi_phy_top` only. |
+| ULPI register read timing | The PHY raises DIR 2–3 ticks after the NXT that acknowledges a RegRead (reg_access RREQ → RWAIT → RRET). ULPI 1.1 Figure 22 shows DIR in the very next cycle. Links that wait for DIR work; Links with fixed timing do not (D7). |
+| ULPI holding state | Not implemented (ULPI 1.1 §3.12): STP unexpectedly high → do not interpret DATA, do not raise DIR, send one merged RXCMD when leaving. The STP pull-up and DATA pull-downs exist in `usb_ulpi_phy_pads`. |
+| Pad wrapper | The pull pin polarity of BBSUD8F (pull-up at PUEN = 0, pull-down at PUEN = 1 / PDEN = 0) comes from the simulation model only, not checked against the X-FAB datasheet (D8). The output cells are not switched to input mode for the NAND-tree test. RESETB has no pull. The X-FAB files (`BBSUD8F.v`, `VLG_PRIMITIVES.v`, `IO_CELLS_JIF3V.v`) are not in the public repo, so `tb_usb_ulpi_phy_pads` only runs where a local PDK copy exists. |
+| Testbench gap | `tb_usb_ulpi_core` did not catch the RXCMD-before-read-data bug. Its Link model finds the read data through internal signals and does not treat the first byte after the turnaround as the read data. |
 
 ---
 
@@ -71,6 +75,8 @@ Some points in the description don't match the RTL or the ULPI/UTMI+ model. They
 | D4 | **OpMode 10 framing** | NRZI is "bypassed in chirp and test modes". | The RTL bypasses stuffing and NRZI but still sends SYNC and EOP (`sync_dis` = 0, no EOP-suppress input on the serializer). | Check ULPI 1.1 / UTMI+ for what is sent in OpMode `10`, then drive `sync_dis` and an EOP-suppress control from Mode Control. |
 | D5 | **Carkit / serial modes** | The register map lists the Interface Control bits FsLsSerialMode 6-pin / 3-pin, CarkitMode and Indicator*. | Stored, no effect. | Declare them out of scope for the first release: readable and writable, no effect, documented. Add them later if a target Link needs serial mode. |
 | D6 | **"idle 00h" output** | The arbiter priority list ends with "4) idle 00h". | `usb_ulpi_out_arbiter` ends the burst instead (DIR falls); ULPI has no idle byte while DIR = 1. | Keep the RTL behaviour and update the diagram text. |
+| D7 | **Register read timing** | ULPI 1.1 Figure 22: DIR rises in the cycle after the NXT that acknowledges RegRead, and the data follows in the next cycle. | DIR rises only once the register file has answered, 2–3 ticks after NXT. | Make the read path fixed-latency: answer the register file combinationally or in the same tick, take the bus right after the acknowledge, and return the data in the next tick. Check against the USB3320 datasheet timing, then make the Link models strict (Phase 1A). |
+| D8 | **BBSUD8F pull control** | — | The model pulls up at PUEN = 0 and pulls down at PUEN = 1, PDEN = 0. That polarity is unusual for a pin named "enable". | Confirm it in the X-FAB IO_CELLS_JIF3V datasheet before tape-out. If the model is wrong, invert `stp_puen` / `data_pden` in `usb_ulpi_phy_pads`. |
 
 ---
 
@@ -84,8 +90,8 @@ Size: **S** ≈ one small module + testbench, **M** ≈ a few modules or one com
 
 | ID | Task |
 |---|---|
-| 0.1 | Add a `Makefile` (or `run_tests.sh`) with one target per testbench, using the file lists from the TB headers. A `make test` target runs everything and summarises the `TEST PASSED` / `FAILED` lines. |
-| 0.2 | Add a lint step: `verilator --lint-only -Wall` on every RTL file. Verilator isn't installed yet. |
+| 0.1 | Add a `Makefile` (or `run_tests.sh`) with one target per testbench, using the file lists from the TB headers. A `make test` target runs everything and summarises the `TEST PASSED` / `FAILED` lines. Build `tb_usb_ulpi_phy_pads` with `-DDISPLAY_PD_PU_EN`, and skip it with a clear message if the local X-FAB files are missing. |
+| 0.2 | Add a lint step: `verilator --lint-only -Wall` on every RTL file (Verilator is installed now). Clean up the warnings that already exist: WIDTHEXPAND in `usb_ulpi_rx_handler` and `usb_ulpi_reg_access`, and UNOPTFLAT on `rdy` in `usb_ulpi_bus_owner`. Leave the vendor pad model out of the lint. |
 | 0.3 | Add a synthesis smoke test (`yosys` `synth` per top level) to catch non-synthesizable code and inferred latches. |
 | 0.4 | Optional: GitHub Actions workflow that runs 0.1–0.3 on every push. |
 
@@ -102,6 +108,19 @@ Size: **S** ≈ one small module + testbench, **M** ≈ a few modules or one com
 | 1.5 | Build and pass the existing integration TBs `tb_usb_ulpi_tx_top`, `tb_usb_ulpi_core` and `tb_usb_ulpi_phy_if`. |
 
 **Done when:** all nine existing testbenches pass.
+
+### Phase 1A — ULPI interface follow-ups (S–M)
+
+Raised by `tb_usb_ulpi_phy_pads` (2026-11-10). They depend on nothing else and can start now.
+
+| # | Deliverable |
+|---|---|
+| 1A.1 | **Fixed-latency register read** (D7): DIR in the cycle after the RegRead acknowledge, data in the next cycle. Keep the `rd_pend` interlock and the existing TX / register interlocks. |
+| 1A.2 | **Strict Link models**: in `tb_usb_ulpi_core`, `tb_usb_ulpi_phy_if` and `tb_usb_ulpi_phy_pads`, the read data is the first byte after the turnaround, taken from the pins only. After 1A.1, also check the Figure 22 timing. |
+| 1A.3 | **ULPI holding state** (§3.12): STP high while the PHY does not expect it → ignore DATA, keep DIR low, collect RXCMD changes into one RXCMD after leaving. Add a TB case in which the Link tri-states its outputs and the pad pulls hold STP high. |
+| 1A.4 | **Pad wrapper review**: confirm the BBSUD8F pull polarity (D8), decide on a RESETB pull, and confirm the DATA pull-down condition (now: protection on and PHY not driving) against the USB3320. |
+
+**Done when:** all TBs pass with the strict Link models, and D7 / D8 are closed.
 
 ### Phase 2 — RX datapath (L) — ✅ done 2026-11-08
 
@@ -176,12 +195,13 @@ The chain from the diagram, with the interface to `usb_ulpi_rx_path` that alread
 | 7.3 | **Analog test mux control** (`atb_sel`) and scan isolation at the boundary. |
 | 7.4 | Scan readiness: no async logic apart from reset, a test-mode override for internal clock gates and generated resets, and a documented scan-mode port. |
 | 7.5 | Optional BIST: PRBS packet generator / checker over the loopback path. |
+| 7.6 | **NAND-tree test mode** for the pads: switch all BBSUD8F cells to input mode (EN = 1) under a test-mode input and bring `nand_tree_out` to a test pin or the test mux. Add a TB that toggles every pad pin and checks the chain. The chain already exists in `usb_ulpi_phy_pads`. |
 
 ### Phase 8 — Top level and system verification (L)
 
 | ID | Task |
 |---|---|
-| 8.1 | **`usb_phy_ulpi_digital`** top level: `usb_ulpi_phy_top` + RX datapath + line state + mode/termination + OTG + clock/reset/power + AFE interface + DFT, with the analog-side ports named as in the `afe_interface` diagram (`TXD_A`, `RXD_A`, `PLL_EN`, …). Retire `usb_ulpi_tx_top` or keep it only for its TB. |
+| 8.1 | **`usb_phy_ulpi_digital`** top level: `usb_ulpi_phy_top` + RX datapath + line state + mode/termination + OTG + clock/reset/power + AFE interface + DFT, with the analog-side ports named as in the `afe_interface` diagram (`TXD_A`, `RXD_A`, `PLL_EN`, …). Retire `usb_ulpi_tx_top` or keep it only for its TB. `usb_ulpi_phy_pads` then wraps this top level instead of `usb_ulpi_phy_top`, and `tb_usb_ulpi_phy_pads` moves along with it. |
 | 8.2 | **System testbench**: ULPI Link model (extended from the existing one with RX, chirp, suspend), an AFE behavioural model (driver/receiver, squelch, CDR with jitter and ppm offset, comparators), and a USB host/device line model at DP/DM. |
 | 8.3 | Scenarios: power-up; register access; device attach and HS handshake; bulk-style HS/FS/LS TX and RX at full rate; back-to-back packets with minimum inter-packet gap; RX overrun; Link STP abort; TX underrun; suspend/resume and remote wakeup; reset; disconnect; OTG session and ID change; all test modes; soft reset. |
 | 8.4 | Protocol checkers: ULPI timing (turnaround, NXT/DIR rules, RXCMD on every change) and USB line encoding (SYNC, stuffing, EOP, inter-packet gaps) as assertions in the TBs. |
@@ -191,7 +211,7 @@ The chain from the diagram, with the interface to `usb_ulpi_rx_path` that alread
 
 | ID | Task |
 |---|---|
-| 9.1 | Timing constraints (SDC): `clk_bit` 480 MHz, `ce60` multicycle paths (8 cycles), recovered RX clock, false paths through the synchronizers, ULPI output timing relative to `CLKOUT`. |
+| 9.1 | Timing constraints (SDC): `clk_bit` 480 MHz, `ce60` multicycle paths (8 cycles), recovered RX clock, false paths through the synchronizers, ULPI output timing relative to `CLKOUT`, including the BBSUD8F pad delays. The core samples the ULPI inputs on the `clk_bit` edge about 1 ns after the CLKOUT edge (as modelled in `tb_usb_ulpi_phy_pads`), so the Link hold time must cover that offset; check it against the ULPI 1.1 / USB3320 I/O timing. |
 | 9.2 | CDC review of every crossing (elastic buffer, status synchronizers, reset synchronizers), with a CDC tool if available. |
 | 9.3 | Synthesis to the target library: 480 MHz timing closure on the bit-rate paths (serializer, stuffer, RX front end), area and power. |
 | 9.4 | Update the module header specs, `CLAUDE.md`, `README.md` and `usb_phy_ulpi_digital_description.md` (decisions D1–D6, final hierarchy); interface spec for the analog team (signal list, timing, reset values). |
@@ -210,6 +230,7 @@ Phase 0 ─┐
          └─► Phase 6 (AFE interface) ─► Phase 7 ────┘
 ```
 
+- **Phase 1A** has no dependencies. Do 1A.1 / 1A.2 before the system TB (8.2) so that its Link model can be strict from the start.
 - **Critical path:** Phase 1 → Phase 2 → Phase 8. Phase 1 comes first because it unblocks the three integration TBs that already exist.
 - Phases 3–6 depend only on Phase 0 and the existing register file, so they can run in parallel with Phase 2.
 - Decisions **D1/D2** are needed before Phase 2.1/2.6; **D3/D4** before Phase 3.4/3.5; the trim register map (6.4) needs input from the analog team.
@@ -232,4 +253,5 @@ Phase 0 ─┐
 | 480 MHz timing on the serializer / stuffer / RX front end | Synthesis fails at the target node | Keep bit-rate logic minimal (the existing serializer is already structured this way); check timing early in Phase 0.3 with the target library. |
 | Ambiguous ULPI 1.1 / UTMI+ details (OpMode `10`/`11` framing, low-power pin mapping, soft-reset scope) | Wrong behaviour with real Links | Check every point against the ULPI 1.1 spec and the USB3320 datasheet in `DOC/`; record each decision in the module header. |
 | Link model and DUT built from the same interpretation of the spec | Shared misunderstanding passes the tests | Cross-check against the USB3320 datasheet waveforms; FPGA test with a real Link core (8.5). |
+| X-FAB PDK files are confidential and the repository is public | The pad TB can't run in CI or on clones without the PDK; files could be published by accident | Keep `BBSUD8F.v`, `VLG_PRIMITIVES.v` and `IO_CELLS_JIF3V.v` in `.gitignore`; run the pad TB locally (or on a private CI runner with the PDK); never force-add them. |
 | Icarus Verilog limits (no SystemVerilog assertions or coverage) | Weaker verification | Keep Verilog-2005 checkers in the TBs; optionally add Verilator for speed and lint. |
