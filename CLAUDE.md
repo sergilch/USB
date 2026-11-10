@@ -70,6 +70,8 @@ usb_rx_decoder: usb_rx_nrzi_decoder -> usb_rx_sync_detect -> usb_rx_bit_unstuffe
 
 `X-FAB/` (local only, ignored by git) holds the xh018 PDK files: `BBSUD8F.v` (the pad cell, copied unchanged from `IO_CELLS_JIF3V.v`), `VLG_PRIMITIVES.v` (UDPs of the I/O library), `IO_CELLS_JIF3V.v`, and the D_CELLS_JIHD standard cells in `xh018_lib/` (Liberty: fast / typ / slow), `xh018_lef/` and `xh018_v/` (simulation models with their own, newer `VLG_PRIMITIVES.v`). `BBSUD8F.v` needs `X-FAB/VLG_PRIMITIVES.v` and only models its pulls with `` `define DISPLAY_PD_PU_EN``. EN is active low. Pull-up is PUEN = 0, pull-down is PUEN = 1 with PDEN = 0. Do not edit the vendor files, and never commit anything from `X-FAB/`: it is confidential X-FAB PDK data, the GitHub repo is public, and `.gitignore` excludes the whole directory.
 
+The analog front end is not in this repo. `AFE_INTEGRATION_PLAN.md` holds the planned boundary (section 3: pin mapping, `TX_EN` lead / lag, digital lock detection), the open questions for the analog team (I1–I12) and the missing blocks; follow it for any module that touches the AFE side (`usb_afe_*`). `AFE/` holds the analog team's block description locally and is not committed.
+
 `usb_ulpi_tx_top` is an older, smaller top level: capture + TX datapath + bus owner, with no register access. Its register and RX hooks are left as open ports. `tb_usb_ulpi_tx_top` still tests it.
 
 ### Rules that hold across all files

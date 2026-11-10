@@ -149,6 +149,7 @@ The RTL and testbenches are all in the repository root:
 - `X-FAB/` (local only, not committed): X-FAB xh018 PDK files, i.e. the pad cell `BBSUD8F.v` with its UDPs (needed for `tb_usb_ulpi_phy_pads`) and the D_CELLS_JIHD standard-cell library (Liberty, LEF, Verilog)
 - `DOC/`: reference documentation (ULPI 1.1 specification, USB3300 datasheet) and the block diagrams (`DOC/Diagramm/`)
 - `WORK_PLAN.md`: development plan for the complete digital section
+- `AFE_INTEGRATION_PLAN.md`: plan for connecting the analog front end (HS RX, HS TX, CDR + PLL) to the digital core, open interface questions, and the analog and digital blocks still missing
 
 ## References
 

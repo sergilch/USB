@@ -1,6 +1,6 @@
 # Work Plan — Fully Functional Digital Section of the USB 2.0 ULPI PHY
 
-*Based on `usb_phy_ulpi_digital_description.md`, the detailed diagrams in `DOC/Diagramm/` (`usb_phy_ulpi_digital`, `ulpi_interface_controller`, `ulpi_register_file`, `afe_interface`) and the RTL in the repository root as of 2026-11-08. Updated 2026-11-10 for the pad wrapper, the register-access fixes and Phase 1A (ULPI interface follow-ups).*
+*Based on `usb_phy_ulpi_digital_description.md`, the detailed diagrams in `DOC/Diagramm/` (`usb_phy_ulpi_digital`, `ulpi_interface_controller`, `ulpi_register_file`, `afe_interface`) and the RTL in the repository root as of 2026-11-08. Updated 2026-11-10 for the pad wrapper, the register-access fixes and Phase 1A (ULPI interface follow-ups). The integration with the analog front end (HS RX, HS TX, CDR + PLL) and the analog blocks still missing are planned separately in `AFE_INTEGRATION_PLAN.md`.*
 
 ---
 
@@ -10,7 +10,7 @@
 
 **In scope:** ULPI interface controller, TX path, RX path, register file, mode/termination control, HS support logic, OTG/VBUS control, line-state/event detection, clock/reset/power management, the AFE interface (digital part) and DFT hooks.
 
-**Out of scope:** the analog blocks (transmitter, receiver, PLL/CDR, terminations, comparators, regulator), the physical level-shifter and isolation cells (only their control signals are in scope), and the pad cells themselves. The pad *wrapper* (`usb_ulpi_phy_pads`, X-FAB `BBSUD8F` cells) is in scope.
+**Out of scope:** the analog blocks (transmitter, receiver, PLL/CDR, terminations, comparators, regulator), the physical level-shifter and isolation cells (only their control signals are in scope), and the pad cells themselves. Their interface to the digital core, the open questions for the analog team and the missing analog blocks are in `AFE_INTEGRATION_PLAN.md` (phases A0–A9). The pad *wrapper* (`usb_ulpi_phy_pads`, X-FAB `BBSUD8F` cells) is in scope.
 
 ---
 
@@ -67,7 +67,7 @@ Some points in the description don't match the RTL or the ULPI/UTMI+ model. They
 
 | # | Topic | Description says | RTL / standard | Recommendation |
 |---|---|---|---|---|
-| D1 | **Clocking** | Two clock domains: `clk60` and `clk_bit` "recovered by the CDR". | All RTL runs on one clock, the PLL `clk_bit` (480 MHz), with `ce60` as the 60 MHz enable. | Keep the single PLL clock for the core and the TX path. Treat the CDR-recovered clock as a third, RX-only domain that ends at the elastic buffer, whose read side is `clk_bit` + `ce60`. Confirm with the analog team what the CDR actually delivers: a recovered clock plus data, or oversampled data on the PLL clock. |
+| D1 | **Clocking** | Two clock domains: `clk60` and `clk_bit` "recovered by the CDR". | All RTL runs on one clock, the PLL `clk_bit` (480 MHz), with `ce60` as the 60 MHz enable. | Keep the single PLL clock for the core and the TX path. Treat the CDR-recovered clock as a third, RX-only domain that ends at the elastic buffer, whose read side is `clk_bit` + `ce60`. 2026-11-10: the AFE description confirms a recovered clock from a PLL-assisted CDR that free-runs near 480 MHz without data (matches the RTL); a retimed data output and the lock time are still open (`AFE_INTEGRATION_PLAN.md` I1, I2). |
 | D2 | **FS/LS receive** | The CDR recovers `clk_bit` at 480 / 12 / 1.5 Mbps. | FS/LS usually doesn't use the HS CDR. | Recover FS/LS data digitally: oversample `rxrcv` / `rxdp` / `rxdm` on `clk_bit` (40× for FS, 320× for LS) with a small DPLL. This needs no analog support and reuses the `FS_DIV` / `LS_DIV` parameters. |
 | D3 | **HS chirp FSM** | The PHY has an "HS Handshake / Chirp FSM" (chirp-K, KJ detection, reset, suspend/resume). | In ULPI/UTMI+ the **Link** runs the HS handshake. It uses OpMode `10` + TXCMD NOPID with 00h data to send chirps and watches LineState in RXCMDs. | Implement the PHY-side support, not an autonomous FSM: chirp transmission without SYNC/EOP/stuffing/NRZI, correct LineState in chirp and HS modes, and HS disconnect sampling. An autonomous FSM is only needed if the Link is a custom controller that expects it. |
 | D4 | **OpMode 10 framing** | NRZI is "bypassed in chirp and test modes". | The RTL bypasses stuffing and NRZI but still sends SYNC and EOP (`sync_dis` = 0, no EOP-suppress input on the serializer). | Check ULPI 1.1 / UTMI+ for what is sent in OpMode `10`, then drive `sync_dis` and an EOP-suppress control from Mode Control. |
@@ -182,6 +182,8 @@ The chain from the diagram, with the interface to `usb_ulpi_rx_path` that alread
 
 ### Phase 6 — AFE interface, digital part (M)
 
+The boundary to the existing analog blocks (pin mapping, `TX_EN` lead / lag, digital PLL / CDR lock detection, level shifting) is specified in `AFE_INTEGRATION_PLAN.md`, sections 3 and 5.2; the integration phases A2–A4 there build on 6.1–6.3.
+
 | ID | Task |
 |---|---|
 | 6.1 | **TX data boundary**: retiming flops for `txd`, `tx_en`, `tx_se0`, driver-mode decode from `tx_speed`, clamped to idle when TX is disabled or isolated. |
@@ -238,6 +240,7 @@ Phase 0 ─┐
 - **Phase 1A** is done apart from D8. The system TB (8.2) should reuse the strict Link model of `tb_usb_ulpi_phy_pads`.
 - **Critical path:** Phase 1 → Phase 2 → Phase 8. Phase 1 comes first because it unblocks the three integration TBs that already exist.
 - Phases 3–6 depend only on Phase 0 and the existing register file, so they can run in parallel with Phase 2.
+- The AFE integration (`AFE_INTEGRATION_PLAN.md`, A0–A9) runs alongside Phases 3–8; its interface spec (A0) should be frozen before 6.1–6.4 and 8.1 start.
 - Decisions **D1/D2** are needed before Phase 2.1/2.6; **D3/D4** before Phase 3.4/3.5; the trim register map (6.4) needs input from the analog team.
 
 ## 6. Milestones
@@ -254,7 +257,7 @@ Phase 0 ─┐
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| The CDR output format is not defined yet (D1) | Rework of the RX front end and elastic buffer | Agree on the interface with the analog team before Phase 2; keep the RX front end a separate, swappable module. |
+| The CDR output format is not defined yet (D1) | Rework of the RX front end and elastic buffer | Agree on the interface with the analog team (`AFE_INTEGRATION_PLAN.md` A0, I1 / I2); keep the RX front end a separate, swappable module. |
 | 480 MHz timing on the serializer / stuffer / RX front end | Synthesis fails at the target node | Keep bit-rate logic minimal (the existing serializer is already structured this way). `run_synth.sh` already maps onto the xh018 library; add a timing check (OpenSTA or Yosys `sta`, with the `ce60` multicycle paths) early, before 9.3. |
 | Ambiguous ULPI 1.1 / UTMI+ details (OpMode `10`/`11` framing, low-power pin mapping, soft-reset scope) | Wrong behaviour with real Links | Check every point against the ULPI 1.1 spec and the USB3320 datasheet in `DOC/`; record each decision in the module header. |
 | Link model and DUT built from the same interpretation of the spec | Shared misunderstanding passes the tests | Cross-check against the USB3320 datasheet waveforms; FPGA test with a real Link core (8.5). |
