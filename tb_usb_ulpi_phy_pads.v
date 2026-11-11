@@ -9,7 +9,8 @@
 //            usb_nrzi_encoder.v usb_tx_serializer.v usb_tx_path.v usb_tx_datapath.v \
 //            usb_ulpi_core.v usb_ulpi_rx_handler.v usb_ulpi_rxcmd_gen.v \
 //            usb_ulpi_out_arbiter.v usb_ulpi_rx_path.v usb_ulpi_phy_if.v \
-//            usb_ulpi_reg_file.v usb_mode_term_ctrl.v usb_ulpi_phy_top.v usb_ulpi_phy_pads.v \
+//            usb_ulpi_reg_file.v usb_afe_trim_regs.v usb_mode_term_ctrl.v usb_ulpi_phy_top.v \
+//            usb_ulpi_phy_pads.v \
 //            tb_usb_ulpi_phy_pads.v
 //   vvp sim_pads
 // Without -DDISPLAY_PD_PU_EN the pads do not model their pulls: the test runs the same,
@@ -35,8 +36,10 @@
 //   * every read returns what a shadow model of the register map predicts (reset values,
 //     write / SET / CLR aliases, reserved bits, RO registers, unmapped and extended
 //     addresses, the extended mirror of 00h-3Fh, status / latch / debug from the status
-//     inputs); data and addresses are often bytes that look like commands;
-//   * the configuration outputs follow the shadow model; soft_reset pulses once per
+//     inputs, the vendor registers 30h-3Fh of usb_afe_trim_regs: shadow / active
+//     trims, UPDATE, RDACT, TEST, PWR_STAT); data and addresses are often bytes that
+//     look like commands;
+//   * the configuration outputs (and the active trims) follow the shadow model; soft_reset pulses once per
 //     write of Function Control with Reset = 1; the ULPI writes land in the one register
 //     file of the design (u_core.u_rf);
 //   * ALT_INT toggles in the background of the random phase, so RXCMDs collide with
@@ -127,6 +130,11 @@ module tb_usb_ulpi_phy_pads;
         .id_gnd        (id_gnd),
         .alt_int       (alt_int),
         .dir_hold      (1'b0),
+        .iso_en        (1'b0),
+        .pwr_state     (4'd5),               // PWR_STAT = V_STAT
+        .pll_err       (1'b0),
+        .pll_lock      (1'b1),
+        .lol           (1'b0),
         .xcvrselect    (xcvrselect),
         .termselect    (termselect),
         .opmode        (opmode),
@@ -156,11 +164,19 @@ module tb_usb_ulpi_phy_pads;
     reg [7:0] sh_fc, sh_ic, sh_otg, sh_ier, sh_ief, sh_scr;
     reg [4:0] sh_latch;
     integer   exp_soft_reset = 0;
+    // vendor registers 30h-3Fh (usb_afe_trim_regs): shadow / active trims, TEST, RDACT
+    localparam [55:0] V_DEF = {8'h02, 8'h04, 8'h0C, 8'h24, 8'h24, 8'h0A, 8'h48};
+    localparam [55:0] V_MSK = {8'h3F, 8'h07, 8'h1F, 8'h3F, 8'h3F, 8'hFF, 8'h7F};
+    localparam [7:0]  V_STAT = 8'h15;                 // pwr_state 5, pll_lock 1 (tied below)
+    reg [55:0] sh_vs, sh_va;
+    reg [4:0]  sh_vt;
+    reg        sh_vr;
 
     task sh_reset;
         begin
             sh_fc = 8'h45; sh_ic = 8'h00; sh_otg = 8'h06;
             sh_ier = 8'h1F; sh_ief = 8'h1F; sh_scr = 8'h00;
+            sh_vs = V_DEF; sh_va = V_DEF; sh_vt = 5'd0; sh_vr = 1'b0;
             // the status synchronizer starts from 0 after reset: every status input that
             // is 1 makes a rising edge, and all rising edges are enabled at reset
             sh_latch = {id_gnd, sess_end, sess_vld, a_vbus_vld, host_disc};
@@ -201,6 +217,11 @@ module tb_usb_ulpi_phy_pads;
                     8'h14: sh_read = {3'b000, sh_latch};
                     8'h15: sh_read = {6'b000000, linestate};
                     8'h16, 8'h17, 8'h18: sh_read = sh_scr;
+                    8'h30, 8'h31, 8'h32, 8'h33, 8'h34, 8'h35, 8'h36:
+                           sh_read = (sh_vr ? sh_va : sh_vs) >> ((m - 8'h30) * 8);
+                    8'h3C: sh_read = {3'b000, sh_vt};
+                    8'h3D: sh_read = V_STAT;
+                    8'h3E: sh_read = {(sh_vs != sh_va), 5'b00000, sh_vr, 1'b0};
                     default: sh_read = 8'h00;
                 endcase
             end
@@ -230,6 +251,10 @@ module tb_usb_ulpi_phy_pads;
             if (m >= 8'h0D && m <= 8'h0F) sh_ier = upd(sh_ier, d, 8'h1F, m - 8'h0D);
             if (m >= 8'h10 && m <= 8'h12) sh_ief = upd(sh_ief, d, 8'h1F, m - 8'h10);
             if (m >= 8'h16 && m <= 8'h18) sh_scr = upd(sh_scr, d, 8'hFF, m - 8'h16);
+            if (m >= 8'h30 && m <= 8'h36)
+                sh_vs[(m - 8'h30) * 8 +: 8] = d & V_MSK[(m - 8'h30) * 8 +: 8];
+            if (m == 8'h3C) sh_vt = d[4:0];
+            if (m == 8'h3E) begin sh_vr = d[1]; if (d[0]) sh_va = sh_vs; end
         end
     endtask
 
@@ -578,6 +603,12 @@ module tb_usb_ulpi_phy_pads;
                          $time, xcvrselect, termselect, opmode, suspendm, ifc_ctrl, otg_ctrl,
                          dut.u_core.ie_rise, dut.u_core.ie_fall, sh_fc, sh_ic, sh_otg, sh_ier, sh_ief);
             end
+            if ({dut.u_core.u_trim.act, dut.atb_sel, dut.ana_lpbk} !== {sh_va, sh_vt[3:0], sh_vt[4]} ||
+                {dut.trim_sq_comp, dut.trim_lock_dly} !== sh_va[53:48] ||
+                {dut.trim_tx_lag, dut.trim_tx_lead} !== sh_va[15:8]) begin
+                errors = errors + 1;
+                $display("ERROR @%0t: trim outputs %h, expected active set %h", $time, dut.u_core.u_trim.act, sh_va);
+            end
             // the ULPI register file the Link talks to is the one inside usb_ulpi_phy_top
             if ((dut.u_core.u_rf.fc_q !== sh_fc) || (dut.u_core.u_rf.ic_q !== sh_ic) ||
                 (dut.u_core.u_rf.otg_q !== sh_otg) || (dut.u_core.u_rf.scr_q !== sh_scr) ||
@@ -809,6 +840,18 @@ module tb_usb_ulpi_phy_pads;
         wr(6'h19, 8'hAF); wr(6'h20, 8'hEF); wr(6'h3F, 8'hC0); wr(6'h30, 8'h80);
         for (k = 0; k < 6; k = k + 1) rd(k);
         rd(6'h13); rd(6'h14); rd(6'h15); rd(6'h19); rd(6'h20); rd(6'h3F); rd(6'h30);
+
+        // vendor registers: trims (shadow -> UPDATE -> active), TEST, PWR_STAT, RDACT
+        $display("[4b] vendor registers 30h-3Fh");
+        for (k = 0; k < 7; k = k + 1) rd(6'h30 + k);
+        rd(6'h3D); rd(6'h3E);
+        for (k = 0; k < 7; k = k + 1) wr(6'h30 + k, cmd_like(k + 2));
+        rd(6'h3E); check_cfg;                            // outputs still the defaults
+        wr(6'h3E, 8'h01); check_cfg;                     // UPDATE
+        wx(8'h31, 8'hEF); rx(8'h31); wr(6'h3E, 8'h02);   // RDACT: active value
+        rd(6'h31); rd(6'h3E); wr(6'h3E, 8'h03); check_cfg;
+        wr(6'h3C, 8'h1F); rd(6'h3C); check_cfg; wr(6'h3C, 8'h00);
+        wr(6'h3E, 8'h00);
 
         // ---- 5. extended register set ----
         $display("[5] extended set: mirror of 00h-3Fh, empty 40h-FFh");

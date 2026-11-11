@@ -25,8 +25,11 @@
 //                                   of a read is not lost)
 //   15h      Debug                  RO  [1:0] LineState (synchronized)
 //   16h-18h  Scratch                reset 00h
-//   other addresses: read 00h, writes ignored (Carkit and vendor-specific registers are
-//   not implemented)
+//   30h-3Fh  Vendor-specific: passed on to the vendor slave (usb_afe_trim_regs) through
+//            vnd_wr / vnd_addr (= address[3:0]) / vnd_wdata; reads return vnd_rdata
+//            (combinational there too).  One address per register: no set / clear
+//            aliases are applied here.
+//   other addresses: read 00h, writes ignored (Carkit registers are not implemented)
 //   Extended set (reg_ext = 1, 8-bit address): as ULPI 1.1 section 4 requires, extended
 //   addresses 00h-3Fh are a mirror of the immediate set - they reach the same registers,
 //   there is no second copy.  Extended 40h-FFh read 00h, writes ignored.
@@ -82,7 +85,13 @@ module usb_ulpi_reg_file #(
     output wire [7:0]  ifc_ctrl,
     output wire [7:0]  otg_ctrl,
     output wire [4:0]  ie_rise,
-    output wire [4:0]  ie_fall
+    output wire [4:0]  ie_fall,
+
+    // vendor registers 30h-3Fh (usb_afe_trim_regs)
+    output wire        vnd_wr,
+    output wire [3:0]  vnd_addr,
+    output wire [7:0]  vnd_wdata,
+    input  wire [7:0]  vnd_rdata
 );
 
     localparam [7:0] A_FC  = 8'h04;
@@ -120,6 +129,7 @@ module usb_ulpi_reg_file #(
     wire hit_ier = (reg_addr >= A_IER) && (reg_addr <= A_IER + 8'd2);
     wire hit_ief = (reg_addr >= A_IEF) && (reg_addr <= A_IEF + 8'd2);
     wire hit_scr = (reg_addr >= A_SCR) && (reg_addr <= A_SCR + 8'd2);
+    wire hit_vnd = (reg_addr[7:4] == 4'h3);
 
     // op: 0 write, 1 set, 2 clear
     function [7:0] upd;
@@ -162,6 +172,7 @@ module usb_ulpi_reg_file #(
             else if (a == 8'h14) rmux = {3'b000, latch_q};
             else if (a == 8'h15) rmux = {6'b000000, l1};
             else if (hit_scr)    rmux = scr_q;
+            else if (hit_vnd)    rmux = vnd_rdata;
         end
     end
 
@@ -212,6 +223,11 @@ module usb_ulpi_reg_file #(
     // ---------------- read answer (same tick) ----------------
     assign reg_rdata = rmux;
     assign rd_valid  = reg_rd;
+
+    // ---------------- vendor slave ----------------
+    assign vnd_wr    = wr_i && hit_vnd;
+    assign vnd_addr  = reg_addr[3:0];
+    assign vnd_wdata = reg_wdata;
 
     // ---------------- outputs ----------------
     assign xcvrselect = fc_q[1:0];

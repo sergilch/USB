@@ -11,7 +11,7 @@ The analog front end and the line-state, VBUS and ID detectors are **not** part 
 - **ULPI 1.1 PHY-side interface:** DIR / NXT / STP / DATA[7:0], with bus turnaround, NXT pacing and TXCMD decoding.
 - **Register access:** immediate (00h–3Fh) and extended (AFh / EFh, pointer 2Fh) register reads and writes. Register reads follow the fixed ULPI timing (turnaround in the cycle after the last NXT, data in the next one), and pending RXCMDs wait until the read data has been sent.
 - **Interface protection:** ULPI holding state. While STP is high outside a transfer, no command is taken and DIR stays low; the RXCMD changes meanwhile go out as one RXCMD when STP falls.
-- **Register file:** Vendor/Product ID, Function Control, Interface Control, OTG Control, USB Interrupt Enable Rising/Falling, Status, Latch, Debug and Scratch, with SET/CLR aliases. Extended addresses 00h–3Fh mirror the immediate set (ULPI 1.1 §4). VID/PID default to the USB3320 values (0424h / 0007h).
+- **Register file:** Vendor/Product ID, Function Control, Interface Control, OTG Control, USB Interrupt Enable Rising/Falling, Status, Latch, Debug and Scratch, with SET/CLR aliases. Extended addresses 00h–3Fh mirror the immediate set (ULPI 1.1 §4). The vendor registers 30h–3Fh hold the AFE trims (a shadow set taken over by an UPDATE strobe), the analog test controls and the power status. VID/PID default to the USB3320 values (0424h / 0007h).
 - **Pad wrapper:** `usb_ulpi_phy_pads` puts the ULPI pins (CLK, DATA[7:0], DIR, NXT, STP) and RESETB on X-FAB xh018 `BBSUD8F` digital I/O cells, with the ULPI interface-protection pulls (STP pull-up, DATA pull-downs, switched by Interface Control bit 7), a RESETB synchronizer and a NAND-tree chain.
 - **TX path:** 4-byte holding FIFO → SYNC/PID mux → bit stuffer → NRZI encoder → serializer + EOP.
   - HS, FS and LS bit rates selected by XcvrSelect, sampled at packet start.
@@ -120,6 +120,7 @@ Every testbench checks its own results and ends with `TEST PASSED`, `TEST FAILED
 | `tb_usb_rx_status_sync.v`     | `usb_rx_status_flt.v` `usb_rx_status_sync.v`         |
 | `tb_usb_line_state.v`         | `usb_line_state.v`                                   |
 | `tb_usb_mode_term_ctrl.v`     | `usb_mode_term_ctrl.v`                               |
+| `tb_usb_afe_trim_regs.v`      | `usb_afe_trim_regs.v`                                |
 
 ### Integration testbenches
 
@@ -158,11 +159,13 @@ For the mixed-signal simulation with the analog blocks (phase A8), `AFE/veriloga
 
 `tb_usb_afe_chirp` (phase A6) puts two PHY ends, a device and a host, on one line with all AFE models (terminations, HS and FS drivers, HS receiver, squelch, CDR, FS receivers) and runs ULPI Link models on top of them: attach, bus reset, the HS handshake (device chirp K, host K-J chirps, both ends switching their terminations), HS packets both ways, disconnect detection, suspend, remote wake-up and resume. The long USB timers are scaled down; the checks cover the line levels (chirp 700 / 400 mV, no J inside a chirp), LineState at both ends, the termination order and every packet.
 
+`tb_usb_pwr_seq` (phase A7) runs the power sequencer with the PLL model, the lock detector, the CLKOUT generator and the AFE boundary blocks behind a model of the isolation cells: power-up, low power with and without CLKOUT, loss of lock, supply loss while transmitting and in low power, and a PLL that does not lock. It checks the order of every step, that CLKOUT only ever stops low, that DIR is held whenever there is no clock, and that no boundary signal is ever undefined while a supply is off.
+
 Copy the integration testbenches' file lists from their headers.
 
 ## Project status
 
-- ✅ The TX path and the RX datapath are complete. All 34 testbenches (30 for the RTL, 4 for the AFE behavioural models) pass with Icarus Verilog.
+- ✅ The TX path and the RX datapath are complete. All 36 testbenches (32 for the RTL, 4 for the AFE behavioural models) pass with Icarus Verilog.
 - ✅ TX data boundary to the AFE (`usb_afe_tx_if`: retiming, HS / FS / LS driver select, `TX_EN` lead / lag, idle clamp), verified through the AFE models; not wired into the top level yet.
 - ✅ HS receive boundary to the AFE (`usb_afe_rx_if`: RX / CDR enables, isolation, squelch-based CDR lock, squelch-latency compensation), with the lock-time margin measured through the AFE models; not wired into the top level yet.
 - ✅ Clocking: `ce60` / CLKOUT generator (`usb_clk_gen`, glitch-free start / stop) and the digital PLL lock detector (`usb_pll_lock_det`, REFSEL decode, loss-of-lock and dead-clock detection), verified with a PLL model; not wired into the top level yet.
@@ -170,7 +173,8 @@ Copy the integration testbenches' file lists from their headers.
 - ✅ Mode / termination control (`usb_mode_term_ctrl`: pull-up, HS terminations and pull-downs per the USB3320 table with break-before-make switching; OpMode 10 chirp / resume framing; OpMode 01 driver disable), inside `usb_ulpi_phy_top`; attach, HS handshake, suspend / resume and disconnect verified with two PHY ends through the AFE models.
 - ✅ Pad wrapper `usb_ulpi_phy_pads` (BBSUD8F cells), verified for register access at the pins.
 - ⏳ The RX datapath is not wired into `usb_ulpi_phy_top` yet; that happens with the full top level.
-- ⏳ OTG/VBUS control, clock/reset/power management and the power sequencer (PLL / CDR enables) are still to be written. See [WORK_PLAN.md](WORK_PLAN.md).
+- ✅ Power sequencer (`usb_pwr_seq`: bias → PLL lock with timeout / retry → isolation off / reset release → CLKOUT → DIR release; low power with and without CLKOUT, relock, supply loss) and the trim / test / power-status registers (`usb_afe_trim_regs`, vendor 30h–3Fh, inside `usb_ulpi_phy_top`); the sequencer is verified with the PLL model and the AFE boundary blocks but not wired into the top level yet.
+- ⏳ OTG/VBUS control and the ULPI low-power controller are still to be written. See [WORK_PLAN.md](WORK_PLAN.md).
 - ⏳ Not implemented yet. These signals are exported, but no logic reacts to them:
   - OpMode `11` (no SYNC / EOP generation; transmits like `00`)
   - `soft_reset`

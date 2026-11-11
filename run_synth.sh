@@ -34,7 +34,7 @@ CORNER=${CORNER:-typ}
 
 command -v yosys >/dev/null || { echo "yosys not found"; exit 1; }
 
-TOPS=(usb_ulpi_phy_top usb_ulpi_phy_pads usb_rx_datapath usb_ulpi_tx_top usb_afe_tx_if usb_afe_rx_if usb_clk_gen usb_pll_lock_det usb_rx_status_sync usb_line_state usb_mode_term_ctrl)
+TOPS=(usb_ulpi_phy_top usb_ulpi_phy_pads usb_rx_datapath usb_ulpi_tx_top usb_afe_tx_if usb_afe_rx_if usb_clk_gen usb_pll_lock_det usb_rx_status_sync usb_line_state usb_mode_term_ctrl usb_pwr_seq usb_afe_trim_regs)
 [ $# -gt 0 ] && TOPS=("$@")
 
 RTL=$(ls usb_*.v | tr '\n' ' ')

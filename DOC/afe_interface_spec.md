@@ -100,8 +100,9 @@ Direction is seen from the digital core. "Reset" is the value while the digital 
 
 | Digital signal | Analog pin | Dir | Function | Reset / Isolated | Status |
 |---|---|---|---|---|---|
-| `bias_en`, `ldo_en` | `BIAS_EN`, `LDO_EN` (**New**) | out | Bias / bandgap and regulator enables | see sequence 5 | Proposed |
-| `pwr_good` | `PWR_GOOD` (**New**) | in | Supplies valid | — / 0 | Fixed (diagram) |
+| `bias_en`, `ldo_en` | `BIAS_EN`, `LDO_EN` (**New**) | out | Bias / bandgap and regulator enables; `ldo_en` = `por_n` (the sequencer's own clock REF_DIG needs VDD18A) | 0 / 0, `ldo_en` = `por_n` | Proposed (A7) |
+| `pwr_good` | `PWR_GOOD` (**New**) | in | VDD33 valid | — / 0 | Fixed (diagram) |
+| `pg18a` | `PG18A` (**New**) | in | VDD18A valid (the LDO's power-good; tie high for an external supply) | — / 0 | Proposed (A7) |
 | `por_n` | POR (**New**) | in | Power-on reset of the digital | — | Proposed |
 | `trim_*[]` | `TRIM_A[]` | out | Trim bits, map in section 6 | reset defaults per trim | TBC (Q11) |
 | `atb_sel[]` | analog test bus select (**New**) | out | Test mux for VREF, VCO control voltages, bias | 0 (off) / 0 | Proposed |
@@ -216,34 +217,51 @@ The digital DPLL samples `rxrcv`, `rxdp`, `rxdm` asynchronously on `clk_bit` (2-
 
 All receiver status outputs (`rxdp`, `rxdm`, `rxrcv`, `squelch`, `disc`, VBUS / ID) are synchronized once, in `usb_rx_status_sync`, and reset to the isolated values of 3.2 / 3.4 / 3.5. LineState (`usb_line_state`) is `{RXDM_A, RXDP_A}` at FS / LS. An SE0 or SE1 shows only after it has held for 2 (FS) / 14 (LS) `ce60` ticks (UTMI+ skew filter), so receiver skew up to 4 ns (FS) and the SE1 overlap of slow LS edges are never reported. Measured in `tb_usb_afe_fsls` from the line voltage crossing 1.4 V to the LineState change, with the `afe_fsls_bm` delays (2 ns receiver, FS / LS ramps): J / K ≤ 14 `clk_bit` cycles (FS and LS), SE0 / SE1 ≤ 117 cycles at LS (limit 124). In HS, LineState is `SQUELCH_A` (squelch = SE0, else J). In chirp mode (OpMode 10) it is `SQUELCH_A` qualified by `RXRCV_A`, because 800 mV chirps are below the single-ended thresholds; so `RXRCV_A` must resolve ±800 mV differential at the HS common mode (≈ 0.4 V; part of Q5).
 
-## 5. Power-up and suspend sequence (Proposed)
+## 5. Power-up and suspend sequence (Proposed, implemented in `usb_pwr_seq`, A7)
+
+`usb_pwr_seq` runs on REF_DIG (`ref_clk`), because `clk_bit` is off before lock and in low power; reset is `por_n`. Times in reference cycles (24 MHz defaults).
 
 ```
-POR released, pwr_good = 1
-  → bias_en = 1, wait T_BIAS (TBC)
-  → pll_en = 1, wait pll_lock (digital detector), DIR held high on ULPI
-  → release digital reset, iso_en = 0
-  → rx_en / cdr_en / tx enables as the mode requires (FS/LS receivers on by default)
-Suspend (ULPI SuspendM = 0):
-  → hs_tx_en = 0, rx_en_hs = 0, cdr_en = 0, pll_en = 0 (when ClockSuspendM = 0)
-  → FS/LS receivers, squelch-independent resume detection and VBUS comparators stay on
-Resume: reverse order, PLL lock before CLKOUT restarts.
+por_n released: ldo_en = 1 (= por_n), everything else off: iso_en = 1, core in reset, DIR held
+pwr_good (VDD33) and pg18a (VDD18A) valid
+  → bias_en = 1, wait BIAS_CYC (240 = 10 us, TBC Q9)
+  → pll_en = 1, wait pll_lock (usb_pll_lock_det; ~75 us with afe_pll_bm)
+      no lock within LOCK_TO (4800 = 200 us): pll_err (sticky), pll_en = 0 for OFF_CYC (1 us), retry
+  → iso_en = 0, core reset released, CLKOUT enabled
+  → CLKOUT running: DIR released, afe_en = 1 (RX_EN / CDR_EN allowed in HS)
+Low power (susp_req from the low-power controller):
+  → afe_en = 0 (RX_EN, CDR_EN off)
+  → ClockSuspendM = 1: PLL and CLKOUT keep running
+  → ClockSuspendM = 0: CLKOUT stops low (clk_on = 0), then pll_en = 0 (at least OFF_CYC)
+  → bias, FS/LS receivers, terminations, LineState, registers stay on; iso_en stays 0
+Wake: pll_en = 1, lock, CLKOUT, then DIR released and afe_en = 1.
+Loss of lock while running: as low power with CLKOUT stopped, then relock at once.
+Supply loss (pwr_good or pg18a low, after 2 reference cycles): iso_en = 1, core reset,
+  bias_en = 0, DIR held at once; pll_en = 0 once CLKOUT is stopped (or at once if VDD18A
+  is going); then the sequence restarts from the top.
 ```
 
-## 6. Trim register map (placeholder)
+Measured in `tb_usb_pwr_seq` (A7): `pwr_good` → `pll_en` 10.1 µs, → lock 75.2 µs, → `iso_en` 0 / reset release / CLKOUT 75.4 µs, → DIR released 75.5 µs; wake from low power with the PLL off → CLKOUT 70 µs. The digital outputs that cross into the AFE come from `ref_clk` flops (`bias_en`, `pll_en`, `iso_en`) or from `clk_bit` flops behind the isolation cells; the clk_bit-side reset, isolation and DIR hold assert asynchronously, so they also act while `clk_bit` is stopped. AFE outputs into the digital are masked by `iso_en` (`usb_afe_rx_if`) or held by the core reset (`usb_rx_status_sync`), so no undefined value reaches the core while VDD33 is off; this relies on `pwr_good` falling before the AFE outputs become invalid (the TB allows 200 ns; the detection takes 2 reference cycles, 83 ns).
 
-Trims sit behind the ULPI vendor registers (WORK_PLAN 6.4), one shadow register set with an update strobe, safe defaults after reset. Candidate fields (sizes TBC, Q11):
+## 6. Trim register map (Proposed, implemented in `usb_afe_trim_regs`, A7)
 
-| Field | Block | Proposed width |
-|---|---|---|
-| `TX_AMP` | HS driver current (360–440 mV high level) | 4 |
-| `TX_LEAD`, `TX_LAG` | Digital, section 4.1 | 5, 3 |
-| `RX_HYST`, `RX_VTH` | HS / FS receiver threshold, hysteresis | 3, 3 |
-| `SQ_VTH`, `DISC_VTH` | Squelch / disconnect thresholds | 3, 3 |
-| `CDR_ICP`, `CDR_BAND` | CDR charge-pump current, VCO band | 3, 2 |
-| `PLL_ICP` | PLL charge-pump current | 3 |
-| `LOCK_DLY`, `SQ_COMP` | Digital, section 4.2 | 3, 3 |
-| `HS_TERM` | HS termination trim | 3 |
+ULPI vendor registers 30h–3Fh (also reached through the extended mirror). One address per register, no set / clear aliases. Writes go to a shadow set; `TRIM_CTRL.UPDATE` copies all of it into the active set in one tick, so a multi-field change never shows an intermediate combination. Both sets reset to the defaults with the core. Field widths and defaults are proposals until Q11, except `TX_LEAD` (A2) and `LOCK_DLY` / `SQ_COMP` (A3).
+
+| Addr | Register | Bits | Default |
+|---|---|---|---|
+| 30h | TRIM_TX | [3:0] `TX_AMP` (HS driver current), [6:4] `HS_TERM` | 8, 4 |
+| 31h | TRIM_LEAD | [4:0] `TX_LEAD`, [7:5] `TX_LAG` (section 4.1, digital) | 10, 0 |
+| 32h | TRIM_RX | [2:0] `RX_VTH`, [5:3] `RX_HYST` | 4, 4 |
+| 33h | TRIM_SQ | [2:0] `SQ_VTH`, [5:3] `DISC_VTH` | 4, 4 |
+| 34h | TRIM_CDR | [2:0] `CDR_ICP`, [4:3] `CDR_BAND` | 4, 1 |
+| 35h | TRIM_PLL | [2:0] `PLL_ICP` | 4 |
+| 36h | TRIM_DLY | [2:0] `LOCK_DLY`, [5:3] `SQ_COMP` (section 4.2, digital) | 2, 0 |
+| 37h–3Bh | reserved | read 00h | |
+| 3Ch | TEST | [3:0] `ATB_SEL`, [4] `ANA_LPBK` (immediate, no shadow) | 0 |
+| 3Dh | PWR_STAT (RO) | [3:0] sequencer state, [4] `pll_lock`, [5] `pll_err`, [6] `lol`; write 1 to bit 6 clears `lol` | — |
+| 3Eh | TRIM_CTRL | [0] UPDATE (write 1, reads 0), [1] RDACT (reads of 30h–36h show the active set), [7] RO shadow ≠ active | 0 |
+
+The isolated value of the trim pins is their reset default: the isolation cells on `TRIM_A[]` must clamp each bit to its default (or the AFE must ignore the trims while isolated).
 
 ## 7. Digital-side facts measured in A0
 

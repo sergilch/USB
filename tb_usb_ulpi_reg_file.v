@@ -8,7 +8,9 @@
 // Two kinds of checks:
 //   * Directed tests against hard-coded expectations: reset values of all registers, the
 //     SET / CLEAR aliases, reserved bits, read-only registers (ID, status, latch, debug),
-//     unmapped addresses, the extended set (00h-3Fh mirror the immediate set), the
+//     unmapped addresses, the vendor range 30h-3Fh (routed to a stub slave: write
+//     strobe / address / data, read data, also through the extended mirror, and
+//     nothing outside 30h-3Fh), the extended set (00h-3Fh mirror the immediate set), the
 //     self-clearing Reset bit with its one-tick soft_reset pulse, the configuration
 //     outputs and the interrupt latch (enabled / masked edges, clear on read).  They run
 //     with ce = 1 always and with ce = 1 tick in 8.
@@ -41,6 +43,13 @@ module tb_usb_ulpi_reg_file;
     wire [7:0] ifc_ctrl, otg_ctrl;
     wire [4:0] ie_rise, ie_fall;
 
+    // vendor slave stub: a distinct value per address, writes are checked per tick
+    wire       vnd_wr;
+    wire [3:0] vnd_addr;
+    wire [7:0] vnd_wdata;
+    function [7:0] vstub(input [3:0] a); vstub = {~a, a} ^ 8'h5A; endfunction
+    wire [7:0] vnd_rdata = vstub(vnd_addr);
+
     usb_ulpi_reg_file dut (
         .clk        (clk),
         .rst_n      (rst_n),
@@ -66,8 +75,13 @@ module tb_usb_ulpi_reg_file;
         .ifc_ctrl   (ifc_ctrl),
         .otg_ctrl   (otg_ctrl),
         .ie_rise    (ie_rise),
-        .ie_fall    (ie_fall)
+        .ie_fall    (ie_fall),
+        .vnd_wr     (vnd_wr),
+        .vnd_addr   (vnd_addr),
+        .vnd_wdata  (vnd_wdata),
+        .vnd_rdata  (vnd_rdata)
     );
+    integer vnd_writes = 0;
 
     integer errors  = 0;
     integer ce_mode = 0;
@@ -137,6 +151,9 @@ module tb_usb_ulpi_reg_file;
                     8'h13: mv = {3'b000, m_p1};
                     8'h14: mv = {3'b000, m_latch};
                     8'h15: mv = {6'b000000, m_l1};
+                    8'h30, 8'h31, 8'h32, 8'h33, 8'h34, 8'h35, 8'h36, 8'h37,
+                    8'h38, 8'h39, 8'h3A, 8'h3B, 8'h3C, 8'h3D, 8'h3E, 8'h3F:
+                           mv = vstub(reg_addr[3:0]);
                     default: begin
                         case (mbase)
                             8'h04:   mv = m_fc | (m_rst ? 8'h20 : 8'h00);
@@ -186,6 +203,16 @@ module tb_usb_ulpi_reg_file;
             // the read answer is combinational: compare it in the read tick itself
             // (pre-edge values; the DUT registers update after this block)
             if (rst_n && model_on) begin
+                if (vnd_wr !== (reg_wr && (!reg_ext || (reg_addr[7:6] == 2'b00)) && (reg_addr[7:4] == 4'h3))) begin
+                    errors = errors + 1;
+                    $display("ERROR @%0t: vnd_wr = %b for wr %b ext %b addr %02h", $time, vnd_wr, reg_wr, reg_ext, reg_addr);
+                end else if (vnd_wr) begin
+                    vnd_writes = vnd_writes + 1;
+                    if (vnd_addr !== reg_addr[3:0] || vnd_wdata !== reg_wdata) begin
+                        errors = errors + 1;
+                        $display("ERROR @%0t: vendor write addr %h data %02h, expected %h %02h", $time, vnd_addr, vnd_wdata, reg_addr[3:0], reg_wdata);
+                    end
+                end
                 if (rd_valid !== reg_rd) begin
                     errors = errors + 1;
                     $display("ERROR @%0t: rd_valid = %b, reg_rd = %b (same-tick answer expected)", $time, rd_valid, reg_rd);
@@ -302,7 +329,7 @@ module tb_usb_ulpi_reg_file;
             rd_chk(0, 8'h10, 8'h1F); rd_chk(0, 8'h11, 8'h1F); rd_chk(0, 8'h12, 8'h1F);
             rd_chk(0, 8'h13, 8'h00); rd_chk(0, 8'h14, 8'h00); rd_chk(0, 8'h15, 8'h00);
             rd_chk(0, 8'h16, 8'h00); rd_chk(0, 8'h17, 8'h00); rd_chk(0, 8'h18, 8'h00);
-            rd_chk(0, 8'h19, 8'h00); rd_chk(0, 8'h3F, 8'h00);
+            rd_chk(0, 8'h19, 8'h00); rd_chk(0, 8'h2F, 8'h00); rd_chk(0, 8'h3F, vstub(4'hF));
             if ((xcvrselect !== 2'b01) || (termselect !== 1'b1) || (opmode !== 2'b00) || (suspendm !== 1'b1) ||
                 (ifc_ctrl !== 8'h00) || (otg_ctrl !== 8'h06) || (ie_rise !== 5'h1F) || (ie_fall !== 5'h1F)) begin
                 errors = errors + 1;
@@ -377,8 +404,18 @@ module tb_usb_ulpi_reg_file;
             rd_chk(0, 8'h13, 8'h00); rd_chk(0, 8'h14, 8'h00); rd_chk(0, 8'h15, 8'h00);
 
             // ---- unmapped addresses and the extended set ----
-            wr_reg(8'h20, 8'hFF); wr_reg(8'h3F, 8'hFF); wr_reg(8'h19, 8'hFF);
-            rd_chk(0, 8'h20, 8'h00); rd_chk(0, 8'h3F, 8'h00); rd_chk(0, 8'h19, 8'h00);
+            wr_reg(8'h20, 8'hFF); wr_reg(8'h2F, 8'hFF); wr_reg(8'h19, 8'hFF);
+            rd_chk(0, 8'h20, 8'h00); rd_chk(0, 8'h2F, 8'h00); rd_chk(0, 8'h19, 8'h00);
+            // vendor range: every address reaches the slave, imm and ext, no aliases
+            sc0 = vnd_writes;
+            for (a = 8'h30; a <= 8'h3F; a = a + 1) begin
+                wr_reg(a, a ^ 8'hC3); rd_chk(0, a, vstub(a)); wr_ext(a, a); rd_chk(1, a, vstub(a));
+            end
+            wr_ext(8'h70, 8'h11); wr_ext(8'hB3, 8'h22); wr_reg(8'h2F, 8'h33);
+            rd_chk(1, 8'h70, 8'h00); rd_chk(1, 8'hF3, 8'h00);
+            if (vnd_writes - sc0 != 32) begin
+                errors = errors + 1; $display("ERROR: %0d vendor writes, expected 32", vnd_writes - sc0);
+            end
             // extended 00h-3Fh mirror the immediate set, 40h-FFh are empty
             wr_ext(8'h16, 8'hA5);  wr_ext(8'h40, 8'hFF);  wr_ext(8'hFF, 8'hFF);
             rd_chk(0, 8'h16, 8'hA5); rd_chk(1, 8'h16, 8'hA5);
@@ -445,9 +482,10 @@ module tb_usb_ulpi_reg_file;
                 end
                 if (r[23:20] < 4'd4) linestate = r2[22:21];
                 if (r[31:24] < 8'd12) begin                    // keep the interesting registers in play
-                    case (r2[26:24] % 3)
+                    case (r2[26:24] % 4)
                         0: reg_addr = 8'h14;
                         1: reg_addr = 8'h13;
+                        2: reg_addr = 8'h30 + r2[30:27];
                         default: reg_addr = 8'h04 + (r2[28:27] % 3);
                     endcase
                 end
@@ -491,7 +529,7 @@ module tb_usb_ulpi_reg_file;
 
         wait_ticks(4);
         $display("--------------------------------------------------");
-        $display("Lockstep comparisons: %0d", lock_checks);
+        $display("Lockstep comparisons: %0d, vendor writes: %0d", lock_checks, vnd_writes);
         if (errors == 0) $display("TEST PASSED");
         else             $display("TEST FAILED: %0d error(s)", errors);
         $display("--------------------------------------------------");

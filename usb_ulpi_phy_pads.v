@@ -4,8 +4,9 @@
 // Pad wrapper of the digital ULPI PHY: usb_ulpi_phy_top with its ULPI pins and the
 // external reset taken through X-FAB xh018 digital I/O cells BBSUD8F (bidirectional,
 // 8 mA, Schmitt-trigger input, gated pull-up / pull-down).  Every other port of
-// usb_ulpi_phy_top (RX datapath, comparators, line state, transmitter, configuration)
-// is on-chip and passes straight through.
+// usb_ulpi_phy_top (RX datapath, comparators, line state, transmitter, configuration,
+// termination enables, trims / test controls, power control and status) is on-chip
+// and passes straight through.
 //
 //   chip pins            BBSUD8F cells               core side
 //   PAD_ULPI_CLK   <---- out  A = clk60               clk60 from the PLL (CLKOUT)
@@ -101,6 +102,13 @@ module usb_ulpi_phy_pads #(
 
     input  wire        dir_hold,
 
+    // power control / status (usb_pwr_seq, usb_pll_lock_det; AFE plan A7)
+    input  wire        iso_en,
+    input  wire [3:0]  pwr_state,
+    input  wire        pll_err,
+    input  wire        pll_lock,
+    input  wire        lol,
+
     // configuration (from the Register File)
     output wire [1:0]  xcvrselect,
     output wire        termselect,
@@ -113,6 +121,33 @@ module usb_ulpi_phy_pads #(
     output wire        cfg_bypass,
 
     // transmitter side
+    // mode / termination control (AFE pins, DOC/afe_interface_spec.md 3.5)
+    output wire        dp_pullup_en,
+    output wire        dm_pullup_en,
+    output wire        hs_term_en,
+    output wire        dp_pulldown_en,
+    output wire        dm_pulldown_en,
+    output wire        drv_dis,
+    output wire        host_mode,
+
+    // trims, test, lock-detector clear (usb_afe_trim_regs, vendor 30h-3Fh)
+    output wire        lol_clr,
+    output wire [3:0]  trim_tx_amp,
+    output wire [2:0]  trim_hs_term,
+    output wire [4:0]  trim_tx_lead,
+    output wire [2:0]  trim_tx_lag,
+    output wire [2:0]  trim_rx_vth,
+    output wire [2:0]  trim_rx_hyst,
+    output wire [2:0]  trim_sq_vth,
+    output wire [2:0]  trim_disc_vth,
+    output wire [2:0]  trim_cdr_icp,
+    output wire [1:0]  trim_cdr_band,
+    output wire [2:0]  trim_pll_icp,
+    output wire [2:0]  trim_lock_dly,
+    output wire [2:0]  trim_sq_comp,
+    output wire [3:0]  atb_sel,
+    output wire        ana_lpbk,
+
     output wire        txd,
     output wire        tx_en,
     output wire        tx_se0,
@@ -230,6 +265,34 @@ module usb_ulpi_phy_pads #(
         .id_gnd        (id_gnd),
         .alt_int       (alt_int),
         .dir_hold      (dir_hold),
+        .iso_en        (iso_en),
+        .pwr_state     (pwr_state),
+        .pll_err       (pll_err),
+        .pll_lock      (pll_lock),
+        .lol           (lol),
+        .dp_pullup_en  (dp_pullup_en),
+        .dm_pullup_en  (dm_pullup_en),
+        .hs_term_en    (hs_term_en),
+        .dp_pulldown_en(dp_pulldown_en),
+        .dm_pulldown_en(dm_pulldown_en),
+        .drv_dis       (drv_dis),
+        .host_mode     (host_mode),
+        .lol_clr       (lol_clr),
+        .trim_tx_amp   (trim_tx_amp),
+        .trim_hs_term  (trim_hs_term),
+        .trim_tx_lead  (trim_tx_lead),
+        .trim_tx_lag   (trim_tx_lag),
+        .trim_rx_vth   (trim_rx_vth),
+        .trim_rx_hyst  (trim_rx_hyst),
+        .trim_sq_vth   (trim_sq_vth),
+        .trim_disc_vth (trim_disc_vth),
+        .trim_cdr_icp  (trim_cdr_icp),
+        .trim_cdr_band (trim_cdr_band),
+        .trim_pll_icp  (trim_pll_icp),
+        .trim_lock_dly (trim_lock_dly),
+        .trim_sq_comp  (trim_sq_comp),
+        .atb_sel       (atb_sel),
+        .ana_lpbk      (ana_lpbk),
         .xcvrselect    (xcvrselect),
         .termselect    (termselect),
         .opmode        (opmode),

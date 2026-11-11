@@ -18,9 +18,12 @@
 //     termination / pull-down enables (USB3320 Table 5-1, break before make, on
 //     ce60), and the TX framing: OpMode 10 = no bit stuffing, no NRZI, no SYNC
 //     (cfg_bypass, sync_dis) and no EOP except for a host at FS / LS (resume K);
-//     OpMode 01 = drv_dis (drivers off, for usb_afe_tx_if).  Its iso_en is tied low
-//     until the power sequencer exists (A7).  OpMode 11 transmits like 00 (not
-//     supported).  The Reset bit (soft_reset) and SuspendM / low-power handling are
+//     OpMode 01 = drv_dis (drivers off, for usb_afe_tx_if).  iso_en (from
+//     usb_pwr_seq, clk_bit side) turns all enables off.  OpMode 11 transmits like 00
+//     (not supported).
+//   * Vendor registers 30h-3Fh (usb_afe_trim_regs, AFE plan A7): AFE trims with a
+//     shadow set and an UPDATE strobe, the analog test controls, PWR_STAT (power
+//     sequencer state, pll_lock, pll_err, lol) and lol_clr for the lock detector.  The Reset bit (soft_reset) and SuspendM / low-power handling are
 //     exported as they are: reacting to them (resetting the PHY core, entering low
 //     power and holding DIR) belongs to the blocks that are still to be written.
 //
@@ -64,6 +67,13 @@ module usb_ulpi_phy_top #(
 
     input  wire        dir_hold,
 
+    // power control / status (usb_pwr_seq, usb_pll_lock_det; AFE plan A7)
+    input  wire        iso_en,
+    input  wire [3:0]  pwr_state,
+    input  wire        pll_err,
+    input  wire        pll_lock,
+    input  wire        lol,
+
     // configuration (from the Register File)
     output wire [1:0]  xcvrselect,
     output wire        termselect,
@@ -83,6 +93,24 @@ module usb_ulpi_phy_top #(
     output wire        dm_pulldown_en,
     output wire        drv_dis,
     output wire        host_mode,
+
+    // trims, test, lock-detector clear (usb_afe_trim_regs, vendor 30h-3Fh)
+    output wire        lol_clr,
+    output wire [3:0]  trim_tx_amp,
+    output wire [2:0]  trim_hs_term,
+    output wire [4:0]  trim_tx_lead,
+    output wire [2:0]  trim_tx_lag,
+    output wire [2:0]  trim_rx_vth,
+    output wire [2:0]  trim_rx_hyst,
+    output wire [2:0]  trim_sq_vth,
+    output wire [2:0]  trim_disc_vth,
+    output wire [2:0]  trim_cdr_icp,
+    output wire [1:0]  trim_cdr_band,
+    output wire [2:0]  trim_pll_icp,
+    output wire [2:0]  trim_lock_dly,
+    output wire [2:0]  trim_sq_comp,
+    output wire [3:0]  atb_sel,
+    output wire        ana_lpbk,
 
     // transmitter side
     output wire        txd,
@@ -107,6 +135,9 @@ module usb_ulpi_phy_top #(
                             sess_end   ? 2'b00 : 2'b01;
 
     wire        tx_sync_dis, tx_eop_dis, term_busy;
+    wire        vnd_wr;
+    wire [3:0]  vnd_addr;
+    wire [7:0]  vnd_wdata, vnd_rdata;
 
     assign cfg_speed  = xcvrselect;
 
@@ -119,7 +150,7 @@ module usb_ulpi_phy_top #(
         .opmode         (opmode),
         .dp_pulldown    (otg_ctrl[1]),
         .dm_pulldown    (otg_ctrl[2]),
-        .iso_en         (1'b0),
+        .iso_en         (iso_en),
         .dp_pullup_en   (dp_pullup_en),
         .dm_pullup_en   (dm_pullup_en),
         .hs_term_en     (hs_term_en),
@@ -209,7 +240,41 @@ module usb_ulpi_phy_top #(
         .ifc_ctrl   (ifc_ctrl),
         .otg_ctrl   (otg_ctrl),
         .ie_rise    (ie_rise),
-        .ie_fall    (ie_fall)
+        .ie_fall    (ie_fall),
+        .vnd_wr     (vnd_wr),
+        .vnd_addr   (vnd_addr),
+        .vnd_wdata  (vnd_wdata),
+        .vnd_rdata  (vnd_rdata)
+    );
+
+    usb_afe_trim_regs u_trim (
+        .clk_bit   (clk_bit),
+        .rst_n     (rst_n),
+        .ce        (ce60),
+        .vnd_wr    (vnd_wr),
+        .vnd_addr  (vnd_addr),
+        .vnd_wdata (vnd_wdata),
+        .vnd_rdata (vnd_rdata),
+        .pwr_state (pwr_state),
+        .pll_err   (pll_err),
+        .pll_lock  (pll_lock),
+        .lol       (lol),
+        .lol_clr   (lol_clr),
+        .trim_tx_amp(trim_tx_amp),
+        .trim_hs_term(trim_hs_term),
+        .trim_tx_lead(trim_tx_lead),
+        .trim_tx_lag(trim_tx_lag),
+        .trim_rx_vth(trim_rx_vth),
+        .trim_rx_hyst(trim_rx_hyst),
+        .trim_sq_vth(trim_sq_vth),
+        .trim_disc_vth(trim_disc_vth),
+        .trim_cdr_icp(trim_cdr_icp),
+        .trim_cdr_band(trim_cdr_band),
+        .trim_pll_icp(trim_pll_icp),
+        .trim_lock_dly(trim_lock_dly),
+        .trim_sq_comp(trim_sq_comp),
+        .atb_sel(atb_sel),
+        .ana_lpbk(ana_lpbk)
     );
 
 endmodule
