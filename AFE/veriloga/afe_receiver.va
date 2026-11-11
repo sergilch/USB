@@ -1,0 +1,199 @@
+//-----------------------------------------------------------------------------
+// afe_receiver.va - idealized HS receiver, squelch and disconnect detector
+//
+// Verilog-A, for the mixed-signal simulation of the USB 2.0 PHY (phase A8 of
+// AFE_INTEGRATION_PLAN.md).  Documentation: AFE/doc/receiver.md.  Pin list
+// and timing: DOC/afe_interface_spec.md 3.2, 3.5, 4.2.  Same behaviour as the
+// Verilog models afe_hs_rx_bm.v and afe_squelch_bm.v.
+//
+// Modules
+//   afe_hs_rx     differential Schmitt-trigger receiver (the analog HS RX block)
+//   afe_squelch   squelch and HS disconnect envelope detectors (new blocks)
+//   afe_receiver  both, sharing RX_EN, RX_IN_P/N and the supplies
+//
+// Connections in the PHY
+//   RX_IN_P / RX_IN_N  <- DP / DM
+//   RX_OUT_P           -> CDR_DATA of afe_cdr (RX_OUT_N unused by the digital)
+//   SQUELCH_A          -> squelch_a of usb_afe_rx_if (1 = no HS signal)
+//   DISC_A             -> disc / host_disc (host mode only)
+//   RX_EN              <- rx_en_hs of usb_afe_rx_if (new pin, spec 3.2)
+//
+// Supplies: RX_VDD (3.3 V) supplies the input stages; RX_VDDO supplies the
+//   output stages, so the outputs swing 0 .. V(RX_VDDO).  Connect RX_VDDO to
+//   1.8 V for the proposed 1.8 V output stage (Q8) or to RX_VDD for today's
+//   3.3 V outputs.  Logic input RX_EN: 1.8 V CMOS, threshold vth_logic.
+//-----------------------------------------------------------------------------
+`include "constants.vams"
+`include "disciplines.vams"
+
+//-----------------------------------------------------------------------------
+// afe_hs_rx: differential Schmitt trigger
+//   vd = V(RX_IN_P) - V(RX_IN_N) - v_off + noise
+//   RX_OUT_P -> 1 when vd > +v_hys / 2, -> 0 when vd < -v_hys / 2, else hold.
+//   RX_OUT_N = complement.  Delay t_dly.  Noise (v_noise > 0): every t_noise a
+//   new uniform offset in +-v_noise, as in afe_hs_rx_bm (makes an idle line
+//   toggle the output, which the digital must tolerate before squelch / lock).
+//   Off (RX_EN = 0, RX_VDD below vdd_min, or RX_VREF below vref_min when
+//   vref_min > 0): RX_OUT_P = 0, RX_OUT_N = 1.
+//-----------------------------------------------------------------------------
+module afe_hs_rx (RX_IN_P, RX_IN_N, RX_EN, RX_VREF, RX_OUT_P, RX_OUT_N,
+                  RX_VDD, RX_GND, RX_VDDO);
+    input      RX_IN_P, RX_IN_N, RX_EN, RX_VREF;
+    output     RX_OUT_P, RX_OUT_N;
+    inout      RX_VDD, RX_GND, RX_VDDO;
+    electrical RX_IN_P, RX_IN_N, RX_EN, RX_VREF, RX_OUT_P, RX_OUT_N, RX_VDD, RX_GND, RX_VDDO;
+
+    parameter real    v_hys     = 20e-3   from [0:inf);   // total hysteresis
+    parameter real    v_off     = 0.0;                    // input offset
+    parameter real    v_noise   = 0.0     from [0:inf);   // peak uniform noise
+    parameter real    t_noise   = 1e-9    from (0:inf);
+    parameter real    t_dly     = 0.3e-9  from [0:inf);
+    parameter real    t_rf      = 50e-12  from (0:inf);
+    parameter real    c_in      = 0.0     from [0:inf);   // per input, to RX_GND
+    parameter real    vth_logic = 0.9;
+    parameter real    vdd_min   = 2.97;                   // 3.3 V - 10 %
+    parameter real    vref_min  = 0.0;                    // 0: RX_VREF not checked
+    parameter real    r_vref    = 1e9     from (0:inf);   // RX_VREF input resistance
+    parameter integer seed0     = 11;
+
+    real    vd, vn;
+    integer st, on, seed;
+
+    analog begin
+        @(initial_step) begin
+            seed = seed0; vn = 0.0;
+            st = (V(RX_IN_P, RX_IN_N) - v_off > 0.0);
+        end
+
+        @(timer(0, (v_noise > 0.0) ? t_noise : 1.0)) begin
+            if (v_noise > 0.0) vn = v_noise * $rdist_uniform(seed, -1.0, 1.0);
+        end
+
+        vd = V(RX_IN_P, RX_IN_N) - v_off + vn;
+        @(cross(vd - v_hys / 2.0, +1)) st = 1;
+        @(cross(vd + v_hys / 2.0, -1)) st = 0;
+
+        @(cross(V(RX_EN, RX_GND) - vth_logic, 0));
+        @(cross(V(RX_VDD, RX_GND) - vdd_min, 0));
+        on = (V(RX_EN, RX_GND) > vth_logic) && (V(RX_VDD, RX_GND) > vdd_min)
+             && ((vref_min <= 0.0) || (V(RX_VREF, RX_GND) > vref_min));
+
+        I(RX_VREF, RX_GND) <+ V(RX_VREF, RX_GND) / r_vref;
+        I(RX_IN_P, RX_GND) <+ c_in * ddt(V(RX_IN_P, RX_GND));
+        I(RX_IN_N, RX_GND) <+ c_in * ddt(V(RX_IN_N, RX_GND));
+
+        V(RX_OUT_P, RX_GND) <+ V(RX_VDDO, RX_GND) * transition((on && st)  ? 1.0 : 0.0, t_dly, t_rf);
+        V(RX_OUT_N, RX_GND) <+ V(RX_VDDO, RX_GND) * transition((on && st) ? 0.0 : 1.0, t_dly, t_rf);
+    end
+endmodule
+
+//-----------------------------------------------------------------------------
+// afe_squelch: squelch and disconnect envelope detectors
+//   Line active while |V(RX_IN_P) - V(RX_IN_N)| > v_sq (USB 2.0: squelch below
+//   100 mV, active above 150 mV; default 125 mV).  SQUELCH_A falls once the
+//   line has been active for t_sq_on and rises once it has been inactive for
+//   t_sq_off (envelope hold: |vd| passes zero at every HS transition).  Both
+//   are inertial: shorter activity or gaps are ignored.
+//   DISC_A = 1 once |vd| > v_disc (USB 2.0: 525-625 mV) for t_disc; falls at
+//   once.  The host samples it during the HS EOP.
+//   Off (RX_EN = 0 or RX_VDD below vdd_min): SQUELCH_A = 1, DISC_A = 0
+//   (isolated values, spec 3.2 / 3.5).
+//-----------------------------------------------------------------------------
+module afe_squelch (RX_IN_P, RX_IN_N, RX_EN, SQUELCH_A, DISC_A, RX_VDD, RX_GND, RX_VDDO);
+    input      RX_IN_P, RX_IN_N, RX_EN;
+    output     SQUELCH_A, DISC_A;
+    inout      RX_VDD, RX_GND, RX_VDDO;
+    electrical RX_IN_P, RX_IN_N, RX_EN, SQUELCH_A, DISC_A, RX_VDD, RX_GND, RX_VDDO;
+
+    parameter real v_sq      = 125e-3 from (0:inf);
+    parameter real t_sq_on   = 4e-9   from [0:inf);   // active -> SQUELCH_A falls
+    parameter real t_sq_off  = 12e-9  from [0:inf);   // idle -> SQUELCH_A rises
+    parameter real v_disc    = 575e-3 from (0:inf);
+    parameter real t_disc    = 4e-9   from [0:inf);
+    parameter real t_dly     = 0.1e-9 from [0:inf);   // output stage
+    parameter real t_rf      = 50e-12 from (0:inf);
+    parameter real vth_logic = 0.9;
+    parameter real vdd_min   = 2.97;
+
+    real    vd, t_chk, t_dchk;
+    integer act_raw, act_f, dsc_raw, dsc_f, on;
+
+    analog begin
+        vd = V(RX_IN_P, RX_IN_N);
+
+        @(initial_step) begin
+            act_raw = (abs(vd) > v_sq);  act_f = act_raw;
+            dsc_raw = (abs(vd) > v_disc); dsc_f = 0;
+            t_chk = 1e9; t_dchk = 1e9;
+        end
+
+        // squelch envelope: |vd| crosses v_sq (four directions)
+        @(cross(vd - v_sq, +1) or cross(vd + v_sq, -1)) begin
+            if (!act_raw) begin act_raw = 1; t_chk = $abstime + t_sq_on; end
+        end
+        // leaving the band: still active only if vd jumped through it in one step
+        @(cross(vd - v_sq, -1)) begin
+            if (act_raw && !(vd < -v_sq)) begin act_raw = 0; t_chk = $abstime + t_sq_off; end
+        end
+        @(cross(vd + v_sq, +1)) begin
+            if (act_raw && !(vd > v_sq)) begin act_raw = 0; t_chk = $abstime + t_sq_off; end
+        end
+        @(timer(t_chk)) begin
+            act_f = act_raw; t_chk = 1e9;
+        end
+
+        // disconnect envelope: inertial rise, immediate fall
+        @(cross(vd - v_disc, +1) or cross(vd + v_disc, -1)) begin
+            if (!dsc_raw) begin dsc_raw = 1; t_dchk = $abstime + t_disc; end
+        end
+        @(cross(vd - v_disc, -1)) begin
+            if (dsc_raw && !(vd < -v_disc)) begin dsc_raw = 0; dsc_f = 0; t_dchk = 1e9; end
+        end
+        @(cross(vd + v_disc, +1)) begin
+            if (dsc_raw && !(vd > v_disc)) begin dsc_raw = 0; dsc_f = 0; t_dchk = 1e9; end
+        end
+        @(timer(t_dchk)) begin
+            dsc_f = dsc_raw; t_dchk = 1e9;
+        end
+
+        @(cross(V(RX_EN, RX_GND) - vth_logic, 0));
+        @(cross(V(RX_VDD, RX_GND) - vdd_min, 0));
+        on = (V(RX_EN, RX_GND) > vth_logic) && (V(RX_VDD, RX_GND) > vdd_min);
+
+        V(SQUELCH_A, RX_GND) <+ V(RX_VDDO, RX_GND) * transition((on && act_f) ? 0.0 : 1.0, t_dly, t_rf);
+        V(DISC_A, RX_GND)    <+ V(RX_VDDO, RX_GND) * transition((on && dsc_f) ? 1.0 : 0.0, t_dly, t_rf);
+    end
+endmodule
+
+//-----------------------------------------------------------------------------
+// afe_receiver: HS receiver + squelch / disconnect, one block
+//-----------------------------------------------------------------------------
+module afe_receiver (RX_IN_P, RX_IN_N, RX_EN, RX_VREF, RX_OUT_P, RX_OUT_N,
+                     SQUELCH_A, DISC_A, RX_VDD, RX_GND, RX_VDDO);
+    input      RX_IN_P, RX_IN_N, RX_EN, RX_VREF;
+    output     RX_OUT_P, RX_OUT_N, SQUELCH_A, DISC_A;
+    inout      RX_VDD, RX_GND, RX_VDDO;
+    electrical RX_IN_P, RX_IN_N, RX_EN, RX_VREF, RX_OUT_P, RX_OUT_N, SQUELCH_A, DISC_A,
+               RX_VDD, RX_GND, RX_VDDO;
+
+    parameter real v_hys    = 20e-3;
+    parameter real v_off    = 0.0;
+    parameter real v_noise  = 0.0;
+    parameter real t_dly    = 0.3e-9;
+    parameter real v_sq     = 125e-3;
+    parameter real t_sq_on  = 4e-9;
+    parameter real t_sq_off = 12e-9;
+    parameter real v_disc   = 575e-3;
+    parameter real t_disc   = 4e-9;
+
+    afe_hs_rx #(.v_hys(v_hys), .v_off(v_off), .v_noise(v_noise), .t_dly(t_dly))
+        i_rx (.RX_IN_P(RX_IN_P), .RX_IN_N(RX_IN_N), .RX_EN(RX_EN), .RX_VREF(RX_VREF),
+              .RX_OUT_P(RX_OUT_P), .RX_OUT_N(RX_OUT_N),
+              .RX_VDD(RX_VDD), .RX_GND(RX_GND), .RX_VDDO(RX_VDDO));
+
+    afe_squelch #(.v_sq(v_sq), .t_sq_on(t_sq_on), .t_sq_off(t_sq_off),
+                  .v_disc(v_disc), .t_disc(t_disc))
+        i_sq (.RX_IN_P(RX_IN_P), .RX_IN_N(RX_IN_N), .RX_EN(RX_EN),
+              .SQUELCH_A(SQUELCH_A), .DISC_A(DISC_A),
+              .RX_VDD(RX_VDD), .RX_GND(RX_GND), .RX_VDDO(RX_VDDO));
+endmodule

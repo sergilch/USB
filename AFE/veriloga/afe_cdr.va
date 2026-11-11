@@ -1,0 +1,153 @@
+//-----------------------------------------------------------------------------
+// afe_cdr.va - idealized PLL-assisted bang-bang CDR (upper loop of the CDR block)
+//
+// Verilog-A, for the mixed-signal simulation of the USB 2.0 PHY (phase A8 of
+// AFE_INTEGRATION_PLAN.md).  Documentation: AFE/doc/cdr.md.  Pin list and
+// timing: DOC/afe_interface_spec.md 3.2, 4.2.  Digital counterpart:
+// usb_afe_rx_if (RX_EN / CDR_EN, squelch sync, hs_cdr_lock) in front of
+// usb_rx_datapath.  Same behaviour as the Verilog model afe_cdr_bm.v.
+//
+// Structure (as in the analog block description):
+//   CDR_DATA -> Alexander phase detector (data sample on the rising CLK_RX
+//               edge, edge sample on the falling edge)
+//            -> charge pump (icp, held for one bit after each decision)
+//            -> filter: R8 + C2 series, C1 shunt                -> CDR_CH_OUT
+//            -> ring VCO, f = f_coarse(CDR_V_IN_2) * (1 + ppm_mis)
+//                             + kvco_f * (CDR_CH_OUT - vf_mid)   -> CLK_RX
+//   f_coarse is the PLL's tuning curve (afe_pll.va), so with CDR_V_IN_2 tied to
+//   the PLL's CDR_CH_OUT_PLL the VCO free-runs at 480 MHz * (1 + ppm_mis) while
+//   there is no data (assumption D1 of WORK_PLAN.md: clk_rx keeps running).
+//
+// Phase detector (bang-bang), for a data transition between two rising edges:
+//   edge sample == previous data -> transition after the falling edge, the
+//                                   clock is early: pump down (slower)
+//   edge sample == new data      -> clock late: pump up (faster)
+//   no transition                -> no pump
+// The proportional path (icp * R8 * kvco_f) moves the next edges by about
+//   T_bit / 16 per decision (130 ps, the afe_cdr_bm default STEP); C2 adds the
+//   frequency (integral) path that tracks the +-1000 ppm of the link.
+//
+// Retimed data (new pin HS_RXD, question Q1): the rising-edge data sample,
+//   t_cq after that edge.  The digital captures it with the next rising CLK_RX
+//   edge: setup T_bit - t_cq, hold t_cq (spec 4.2: >= 0.4 ns / >= 0.1 ns).
+//   1 = J (CDR_DATA high = RX_OUT_P high = DP > DM, polarity Q3).
+//
+// Pins (logic pins: 1.8 V CMOS, threshold vth_logic, referred to VSS18A)
+//   CDR_DATA     in   data from the HS receiver (RX_OUT_P)
+//   CDR_EN       in   1 = on.  0: CLK_RX stops low, HS_RXD = 1 (isolated J),
+//                     CDR_CH_OUT reset to vf_mid
+//   CDR_V_IN_2   in   coarse tuning voltage (from CDR_CH_OUT_PLL), high impedance
+//   CLK_RX       out  recovered clock (clk_rx of the digital)
+//   HS_RXD       out  retimed data (hs_rxd_a of usb_afe_rx_if)
+//   CDR_CH_OUT   io   fine loop filter node
+//   VDD18A, VSS18A    1.8 V analog supply.  Below vdd_min the CDR is off.
+//-----------------------------------------------------------------------------
+`include "constants.vams"
+`include "disciplines.vams"
+
+module afe_cdr (CDR_DATA, CDR_EN, CDR_V_IN_2, CLK_RX, HS_RXD, CDR_CH_OUT,
+                VDD18A, VSS18A);
+    input      CDR_DATA, CDR_EN, CDR_V_IN_2;
+    output     CLK_RX, HS_RXD;
+    inout      CDR_CH_OUT, VDD18A, VSS18A;
+    electrical CDR_DATA, CDR_EN, CDR_V_IN_2, CLK_RX, HS_RXD, CDR_CH_OUT, VDD18A, VSS18A;
+    electrical n_z;                                     // R8 / C2 midpoint
+
+    // coarse tuning curve (keep equal to afe_pll.va)
+    parameter real    f_min     = 400e6   from (0:inf);
+    parameter real    f_max     = 500e6   from (f_min:inf);
+    parameter real    kvco      = 200e6   from (0:inf);   // Hz/V
+    parameter real    v_fmin    = 0.5;
+    parameter real    ppm_mis   = 0.0;                    // coarse mismatch to the PLL VCO (R3)
+    // fine loop
+    parameter real    kvco_f    = 300e6   from (0:inf);   // Hz/V
+    parameter real    vf_mid    = 0.9;                    // V, fine input at zero offset
+    parameter real    icp       = 100e-6  from (0:inf);
+    parameter real    r8        = 1e3     from (0:inf);
+    parameter real    c2        = 500e-12 from (0:inf);
+    parameter real    c1        = 0.1e-12 from (0:inf);
+    parameter real    v_cp_marg = 0.1     from [0:inf);
+    parameter real    r_rst     = 100.0   from (0:inf);   // filter reset while off
+    // sampling and outputs
+    parameter real    vth_logic = 0.9;
+    parameter real    vdd_min   = 1.5;
+    parameter real    t_cq      = 0.3e-9  from [0:inf);   // CLK_RX rise -> HS_RXD
+    parameter real    t_amb     = 0.0     from [0:inf);   // sample closer than this to a
+                                                          // data edge is random (0 = ideal)
+    parameter real    t_rf      = 50e-12  from (0:inf);
+    parameter real    jit_rms   = 0.0     from [0:inf);   // s, VCO period jitter
+    parameter integer pts       = 10      from [4:inf);
+    parameter integer seed0     = 5;
+
+    real    vdd, fc, freq, f_run, fc_up, fc_dn, phase, dt_j, t_lc;
+    integer en, d, d_prev, e, cp, clk_q, rxd_q, seed;
+
+    analog begin
+        @(initial_step) begin
+            d = 0; d_prev = 0; e = 0; cp = 0; clk_q = 0; rxd_q = 1;
+            dt_j = 0.0; seed = seed0;
+        end
+
+        vdd = V(VDD18A, VSS18A);
+        @(cross(V(CDR_EN, VSS18A) - vth_logic, 0));
+        @(cross(vdd - vdd_min, 0));
+        en = (V(CDR_EN, VSS18A) > vth_logic) && (vdd > vdd_min);
+
+        t_lc = last_crossing(V(CDR_DATA, VSS18A) - vth_logic, 0);
+
+        // ---- VCO: coarse (PLL replica) + fine ----
+        fc = f_min + kvco * (V(CDR_V_IN_2, VSS18A) - v_fmin);
+        if (fc < f_min) fc = f_min;
+        if (fc > f_max) fc = f_max;
+        freq = fc * (1.0 + 1e-6 * ppm_mis) + kvco_f * (V(CDR_CH_OUT, VSS18A) - vf_mid);
+        if (freq < 0.5 * f_min) freq = 0.5 * f_min;
+        if (freq > 1.5 * f_max) freq = 1.5 * f_max;
+        f_run = en ? freq : 0.0;
+        if (en) $bound_step(1.0 / (pts * f_max));
+        phase = idtmod(f_run * (1.0 - dt_j * f_run), 0.0, 1.0, -0.5);
+
+        // ---- rising edge: data sample, phase decision, retimed data ----
+        @(cross(phase + 0.25, +1)) begin
+            clk_q = 1;
+            if (t_amb > 0.0 && ($abstime - t_lc) < t_amb)
+                d = ($rdist_uniform(seed, 0.0, 1.0) > 0.5);
+            else
+                d = (V(CDR_DATA, VSS18A) > vth_logic);
+            if (d != d_prev)
+                cp = (e == d_prev) ? -1 : 1;
+            else
+                cp = 0;
+            d_prev = d;
+            rxd_q  = d;
+            if (jit_rms > 0.0) dt_j = jit_rms * $rdist_normal(seed, 0.0, 1.0);
+        end
+        // ---- falling edge: edge sample ----
+        @(cross(phase - 0.25, +1)) begin
+            clk_q = 0;
+            if (t_amb > 0.0 && ($abstime - t_lc) < t_amb)
+                e = ($rdist_uniform(seed, 0.0, 1.0) > 0.5);
+            else
+                e = (V(CDR_DATA, VSS18A) > vth_logic);
+        end
+        @(cross(V(CDR_EN, VSS18A) - vth_logic, -1) or cross(vdd - vdd_min, -1)) begin
+            cp = 0; rxd_q = 1;
+        end
+
+        // ---- charge pump, filter, reset while off ----
+        fc_up = 0.5 * (1.0 + tanh((vdd - v_cp_marg - V(CDR_CH_OUT, VSS18A)) / 0.02));
+        fc_dn = 0.5 * (1.0 + tanh((V(CDR_CH_OUT, VSS18A) - v_cp_marg) / 0.02));
+        I(CDR_CH_OUT, VSS18A) <+ -icp * (transition((en && cp > 0) ? 1.0 : 0.0, 0, t_rf) * fc_up
+                                       - transition((en && cp < 0) ? 1.0 : 0.0, 0, t_rf) * fc_dn);
+        I(CDR_CH_OUT, VSS18A) <+ c1 * ddt(V(CDR_CH_OUT, VSS18A));
+        I(CDR_CH_OUT, n_z)    <+ V(CDR_CH_OUT, n_z) / r8;
+        I(n_z, VSS18A)        <+ c2 * ddt(V(n_z, VSS18A));
+        I(CDR_CH_OUT, VSS18A) <+ transition(en ? 0.0 : 1.0, 0, 1e-9)
+                                 * (V(CDR_CH_OUT, VSS18A) - vf_mid) / r_rst;
+        I(n_z, VSS18A)        <+ transition(en ? 0.0 : 1.0, 0, 1e-9)
+                                 * (V(n_z, VSS18A) - vf_mid) / r_rst;
+
+        // ---- outputs ----
+        V(CLK_RX, VSS18A) <+ vdd * transition((en && clk_q) ? 1.0 : 0.0, 0, t_rf);
+        V(HS_RXD, VSS18A) <+ vdd * transition((!en || rxd_q) ? 1.0 : 0.0, t_cq, t_rf);
+    end
+endmodule

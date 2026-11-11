@@ -168,6 +168,8 @@ These extend `WORK_PLAN.md`; the phase numbers in brackets point there.
 | `afe_squelch_bm`, `afe_fsls_bm`, `afe_term_bm` | Squelch with response delay; FS/LS drivers / receivers with slew delay; termination states. |
 | `afe_line_bm` | DP / DM with both ends' drivers and terminations, resolving the line voltage (Verilog reals carried as `$realtobits` buses), so attach, chirp, SE0 and HS idle can be checked by level. (Named `afe_*` rather than `usb_*` so that synthesis never reads it.) |
 
+For the analog simulator (A8) the same blocks, plus the PLL loop and an LDO, also exist as idealized Verilog-A models in `AFE/veriloga/` (created 2026-11-11, documented in `AFE/README.md` and `AFE/doc/`, not simulated yet). They use the pin names of `DOC/afe_interface_spec.md` and the defaults of the `afe_*_bm.v` models, and stand in for the missing analog blocks until the transistor-level ones exist.
+
 Each model is correlated with the analog team's SPICE results: a sign-off table with the simulated value, the model parameter and the corner for every item in section 3 (delays, lock time, hysteresis, settling, levels).
 
 ---

@@ -146,6 +146,8 @@ Their testbenches: `tb_afe_line` (USB 2.0 levels: HS 400 mV, chirp 800 mV, SE0, 
 
 `tb_usb_afe_rx_if` (phase A3) drives HS packets from a far transmitter through the line, the HS receiver and squelch models and either an ideal or the bang-bang CDR model into six `usb_afe_rx_if` + `usb_rx_datapath` pairs with different SYNC thresholds, lock delays and squelch compensation. It checks the boundary pins against a reference model and measures how many wrong bits the CDR may deliver at the start of a 12-bit SYNC, and how slow the squelch detector may be.
 
+For the mixed-signal simulation with the analog blocks (phase A8), `AFE/veriloga/` holds idealized **Verilog-A** models of the PLL, CDR, line transceiver (HS TX, FS/LS, terminations), HS receiver (with squelch and disconnect) and a 3.3 V → 1.8 V LDO. They have the same pins and defaults as the Verilog models above. Documentation: [`AFE/README.md`](AFE/README.md) and `AFE/doc/`. They have not been run in a simulator yet.
+
 `tb_usb_pll_lock_det` (phase A4) runs the lock detector and the CLKOUT generator on the clock of a PLL model: lock time after enable, loss of lock on a frequency error, a missing reference or a dead VCO, the REFSEL settings, and the CLKOUT pulse shape and its glitch-free stop / start.
 
 Copy the integration testbenches' file lists from their headers.

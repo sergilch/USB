@@ -1,0 +1,292 @@
+//-----------------------------------------------------------------------------
+// afe_transceiver.va - idealized USB 2.0 line transceiver: HS transmitter,
+//                      FS / LS transceiver, terminations and pulls
+//
+// Verilog-A, for the mixed-signal simulation of the USB 2.0 PHY (phase A8 of
+// AFE_INTEGRATION_PLAN.md).  Documentation: AFE/doc/transceiver.md.  Pin list
+// and timing: DOC/afe_interface_spec.md 3.1, 3.4, 3.5, 4.1, 4.4.  Digital
+// counterpart: usb_afe_tx_if (hs_tx_p/n, hs_tx_en, fs_oe/dat/se0/ls) and the
+// FS / LS front end of usb_rx_datapath (rxrcv, rxdp, rxdm).  Same behaviour as
+// the Verilog models afe_hs_tx_bm.v, afe_fsls_bm.v and afe_term_bm.v.
+//
+// Modules
+//   afe_hs_tx        HS current-mode driver (the analog HS TX block)
+//   afe_fsls_xcvr    FS / LS drivers and receivers (new block)
+//   afe_term         1.5 kOhm pull-up, 45 Ohm HS terminations, 15 kOhm
+//                    pull-downs (new block)
+//   afe_transceiver  all three on DP / DM
+//
+// Logic inputs: 1.8 V CMOS (proposed 1.8 V input stages, Q8), threshold
+//   vth_logic, referred to the block's ground.  Logic outputs swing
+//   0 .. V(VDD18).  The line itself (DP, DM) is 3.3 V.
+//-----------------------------------------------------------------------------
+`include "constants.vams"
+`include "disciplines.vams"
+
+//-----------------------------------------------------------------------------
+// afe_hs_tx: HS current-mode driver
+//   * i_hs (17.78 mA) is steered into TX_OUT_P (DP) for TX_IN_P = 1,
+//     TX_IN_N = 0 (J, polarity Q3) and into TX_OUT_N (DM) for 0 / 1.  Into
+//     the two 45 Ohm terminations of an HS link that gives 400 mV, into one
+//     (chirp, far end in SE0) about 800 mV.  The current comes from TX_VDD
+//     (compliance: it falls off when the output is within v_compl of TX_VDD).
+//   * TX_EN: current reaches the outputs only t_en after TX_EN rose (settling,
+//     Q4); while TX_EN = 0 the current is dumped internally (outputs high
+//     impedance).  usb_afe_tx_if leads TX_EN by tx_lead bit times; the default
+//     tx_lead = ceil(t_en / 2.083 ns) = 10 for t_en = 20 ns (spec 4.1).
+//   * TX_IN_P = TX_IN_N while settled: the current splits half / half.  If
+//     that lasts longer than t_skew_max it is reported (P/N skew or glitch at
+//     the boundary) and counted in skew_err.
+//   * Delay t_dly TX_IN -> output, output edges t_rf_hs (0-100 %; 0.625 ns
+//     gives the USB minimum 10-90 % rise time of 500 ps).
+//   * Bias (Q9): bias_mode 0 = ideal; 1 = i_hs scales with V(TX_VREF) /
+//     vref_nom; 2 = TX_I_5U is a bias current input held at v_i5u, i_hs scales
+//     with the current into it / 5 uA.  TX_CAP_P / TX_CAP_N (Q10) connect to the
+//     outputs through r_cap (default: open).
+//-----------------------------------------------------------------------------
+module afe_hs_tx (TX_IN_P, TX_IN_N, TX_EN, TX_I_5U, TX_VREF, TX_OUT_P, TX_OUT_N,
+                  TX_CAP_P, TX_CAP_N, TX_VDD, TX_GND);
+    input      TX_IN_P, TX_IN_N, TX_EN, TX_I_5U, TX_VREF;
+    inout      TX_OUT_P, TX_OUT_N, TX_CAP_P, TX_CAP_N, TX_VDD, TX_GND;
+    electrical TX_IN_P, TX_IN_N, TX_EN, TX_I_5U, TX_VREF, TX_OUT_P, TX_OUT_N,
+               TX_CAP_P, TX_CAP_N, TX_VDD, TX_GND;
+    branch (TX_I_5U, TX_GND) b_i5u;
+
+    parameter real    i_hs       = 17.78e-3 from (0:inf);
+    parameter real    i_scale    = 1.0      from [0:inf);   // amplitude trim
+    parameter real    t_en       = 20e-9    from [0:inf);
+    parameter real    t_dly      = 0.5e-9   from [0:inf);
+    parameter real    t_rf_hs    = 0.625e-9 from (0:inf);
+    parameter real    t_skew_max = 0.1e-9   from [0:inf);
+    parameter real    v_compl    = 0.3      from [0:inf);
+    parameter real    r_out      = 1e6      from (0:inf);   // driver output resistance
+    parameter real    c_out      = 0.0      from [0:inf);
+    parameter integer bias_mode  = 0        from [0:2];
+    parameter real    vref_nom   = 1.2      from (0:inf);
+    parameter real    v_i5u      = 0.6;
+    parameter real    r_cap      = 1e12     from (0:inf);
+    parameter real    vth_logic  = 0.9;
+    parameter real    vdd_min    = 2.97;
+
+    real    kb, fp, fm, t_set, t_skw;
+    integer p, n, en_pin, settled, sup_ok, skew_err;
+
+    analog begin
+        @(initial_step) begin
+            settled = 0; skew_err = 0; t_set = 1e9; t_skw = 1e9;
+        end
+
+        @(cross(V(TX_IN_P, TX_GND) - vth_logic, 0) or cross(V(TX_IN_N, TX_GND) - vth_logic, 0)) begin
+            p = (V(TX_IN_P, TX_GND) > vth_logic);
+            n = (V(TX_IN_N, TX_GND) > vth_logic);
+            t_skw = (settled && p == n) ? $abstime + t_skew_max : 1e9;
+        end
+        p = (V(TX_IN_P, TX_GND) > vth_logic);
+        n = (V(TX_IN_N, TX_GND) > vth_logic);
+
+        @(cross(V(TX_VDD, TX_GND) - vdd_min, 0));
+        sup_ok = (V(TX_VDD, TX_GND) > vdd_min);
+
+        // TX_EN settling
+        @(cross(V(TX_EN, TX_GND) - vth_logic, +1)) t_set = $abstime + t_en;
+        @(cross(V(TX_EN, TX_GND) - vth_logic, -1) or cross(V(TX_VDD, TX_GND) - vdd_min, -1)) begin
+            settled = 0; t_set = 1e9; t_skw = 1e9;
+        end
+        @(timer(t_set)) begin
+            settled = sup_ok && (V(TX_EN, TX_GND) > vth_logic);
+            t_set = 1e9;
+            if (settled && p == n) t_skw = $abstime + t_skew_max;
+        end
+        @(timer(t_skw)) begin
+            if (settled && p == n) begin
+                skew_err = skew_err + 1;
+                $strobe("%M: TX_IN_P = TX_IN_N for more than %g s at %g s (skew_err = %d)",
+                        t_skew_max, $abstime, skew_err);
+            end
+            t_skw = 1e9;
+        end
+
+        // bias
+        if (bias_mode == 2) V(b_i5u) <+ v_i5u;
+        else                I(b_i5u) <+ V(b_i5u) / 1e9;
+        I(TX_VREF, TX_GND) <+ V(TX_VREF, TX_GND) / 1e9;
+        if (bias_mode == 1)      kb = max(V(TX_VREF, TX_GND), 0.0) / vref_nom;
+        else if (bias_mode == 2) kb = max(I(b_i5u), 0.0) / 5e-6;
+        else                     kb = 1.0;
+
+        // current steering (fp / fm: share of i_hs into DP / DM)
+        fp = transition((settled && sup_ok) ? ((p && !n) ? 1.0 : ((p == n) ? 0.5 : 0.0)) : 0.0,
+                        t_dly, t_rf_hs);
+        fm = transition((settled && sup_ok) ? ((n && !p) ? 1.0 : ((p == n) ? 0.5 : 0.0)) : 0.0,
+                        t_dly, t_rf_hs);
+        I(TX_VDD, TX_OUT_P) <+ i_hs * i_scale * kb * fp
+                               * 0.5 * (1.0 + tanh((V(TX_VDD, TX_OUT_P) - v_compl) / 0.05));
+        I(TX_VDD, TX_OUT_N) <+ i_hs * i_scale * kb * fm
+                               * 0.5 * (1.0 + tanh((V(TX_VDD, TX_OUT_N) - v_compl) / 0.05));
+        I(TX_OUT_P, TX_GND) <+ V(TX_OUT_P, TX_GND) / r_out + c_out * ddt(V(TX_OUT_P, TX_GND));
+        I(TX_OUT_N, TX_GND) <+ V(TX_OUT_N, TX_GND) / r_out + c_out * ddt(V(TX_OUT_N, TX_GND));
+        I(TX_CAP_P, TX_OUT_P) <+ V(TX_CAP_P, TX_OUT_P) / r_cap;
+        I(TX_CAP_N, TX_OUT_N) <+ V(TX_CAP_N, TX_OUT_N) / r_cap;
+    end
+endmodule
+
+//-----------------------------------------------------------------------------
+// afe_fsls_xcvr: FS / LS transceiver
+// Driver (FS_OE_A, FS_DAT_A, FS_SE0_A, FS_LS_A)
+//   * Each wire: a voltage source 0 .. VDD33 behind r_out (45 Ohm: 28-44 Ohm
+//     driver plus series resistor).  FS_OE_A = 0: off (high impedance).
+//   * FS_DAT_A = 1 is J at the selected speed: FS J = DP high, LS J = DM high
+//     (FS_LS_A = 1).  FS_SE0_A = 1 drives both wires low (SE0; also the 45 Ohm
+//     host termination during reset / chirp).
+//   * Linear ramps of t_fs (FS_LS_A = 0) or t_ls (FS_LS_A = 1), 0-100 %:
+//     12.5 ns -> 10 ns 10-90 % (FS: 4-20 ns), 187.5 ns -> 150 ns (LS: 75-300 ns).
+// Receivers, delay t_rx, outputs 0 .. VDD18
+//   * RXDP_A / RXDM_A: single-ended, threshold vse, hysteresis hys_se
+//     (USB 2.0: low below 0.8 V, high above 2.0 V).
+//   * RXRCV_A: differential, 1 when DP - DM > +vdi / 2, 0 when < -vdi / 2
+//     (USB 2.0 sensitivity 200 mV).
+//   * FS_RX_EN_A = 0 (new pin; receivers on by default in the PHY) or VDD33
+//     below vdd_min: RXDP_A = RXDM_A = 0, RXRCV_A = 1 (isolated values, 3.4).
+//-----------------------------------------------------------------------------
+module afe_fsls_xcvr (FS_OE_A, FS_DAT_A, FS_SE0_A, FS_LS_A, FS_RX_EN_A,
+                      RXRCV_A, RXDP_A, RXDM_A, DP, DM, VDD33, VDD18, GND);
+    input      FS_OE_A, FS_DAT_A, FS_SE0_A, FS_LS_A, FS_RX_EN_A;
+    output     RXRCV_A, RXDP_A, RXDM_A;
+    inout      DP, DM, VDD33, VDD18, GND;
+    electrical FS_OE_A, FS_DAT_A, FS_SE0_A, FS_LS_A, FS_RX_EN_A,
+               RXRCV_A, RXDP_A, RXDM_A, DP, DM, VDD33, VDD18, GND;
+
+    parameter real r_out     = 45.0     from (0:inf);
+    parameter real t_fs      = 12.5e-9  from (0:inf);
+    parameter real t_ls      = 187.5e-9 from (0:inf);
+    parameter real t_oe      = 1e-9     from (0:inf);   // driver on / off
+    parameter real vse       = 1.4;
+    parameter real hys_se    = 0.2      from [0:inf);
+    parameter real vdi       = 0.2      from [0:inf);
+    parameter real t_rx      = 2e-9     from [0:inf);
+    parameter real t_rf      = 0.2e-9   from (0:inf);
+    parameter real vth_logic = 0.9;
+    parameter real vdd_min   = 2.97;
+
+    integer oe, dat, se0, ls, tp, tm, sp, sm, sd, rx_on, sup_ok;
+    real    t_ramp, vps, vms, g;
+
+    analog begin
+        @(cross(V(FS_OE_A, GND)  - vth_logic, 0) or cross(V(FS_DAT_A, GND) - vth_logic, 0) or
+          cross(V(FS_SE0_A, GND) - vth_logic, 0) or cross(V(FS_LS_A, GND)  - vth_logic, 0) or
+          cross(V(FS_RX_EN_A, GND) - vth_logic, 0) or cross(V(VDD33, GND) - vdd_min, 0));
+        oe     = (V(FS_OE_A, GND)  > vth_logic);
+        dat    = (V(FS_DAT_A, GND) > vth_logic);
+        se0    = (V(FS_SE0_A, GND) > vth_logic);
+        ls     = (V(FS_LS_A, GND)  > vth_logic);
+        sup_ok = (V(VDD33, GND) > vdd_min);
+        rx_on  = (V(FS_RX_EN_A, GND) > vth_logic) && sup_ok;
+
+        // driver targets: DP high for FS J / LS K
+        if (se0) begin tp = 0; tm = 0; end
+        else if (dat != ls) begin tp = 1; tm = 0; end
+        else begin tp = 0; tm = 1; end
+        t_ramp = ls ? t_ls : t_fs;
+
+        vps = V(VDD33, GND) * transition(tp, 0, t_ramp);
+        vms = V(VDD33, GND) * transition(tm, 0, t_ramp);
+        g   = transition((oe && sup_ok) ? 1.0 : 0.0, 0, t_oe) / r_out;
+        I(DP, GND) <+ g * (V(DP, GND) - vps);
+        I(DM, GND) <+ g * (V(DM, GND) - vms);
+
+        // receivers
+        @(initial_step) begin
+            sp = (V(DP, GND) > vse); sm = (V(DM, GND) > vse); sd = (V(DP, DM) > 0.0);
+        end
+        @(cross(V(DP, GND) - (vse + hys_se / 2.0), +1)) sp = 1;
+        @(cross(V(DP, GND) - (vse - hys_se / 2.0), -1)) sp = 0;
+        @(cross(V(DM, GND) - (vse + hys_se / 2.0), +1)) sm = 1;
+        @(cross(V(DM, GND) - (vse - hys_se / 2.0), -1)) sm = 0;
+        @(cross(V(DP, DM) - vdi / 2.0, +1)) sd = 1;
+        @(cross(V(DP, DM) + vdi / 2.0, -1)) sd = 0;
+
+        V(RXDP_A, GND)  <+ V(VDD18, GND) * transition((rx_on && sp) ? 1.0 : 0.0, t_rx, t_rf);
+        V(RXDM_A, GND)  <+ V(VDD18, GND) * transition((rx_on && sm) ? 1.0 : 0.0, t_rx, t_rf);
+        V(RXRCV_A, GND) <+ V(VDD18, GND) * transition((!rx_on || sd) ? 1.0 : 0.0, t_rx, t_rf);
+    end
+endmodule
+
+//-----------------------------------------------------------------------------
+// afe_term: switchable terminations and pulls (spec 3.5)
+//   DP_PULLUP_EN_A  r_pu (1.5 kOhm) from DP to VDD33 (FS device attach)
+//   HS_TERM_EN_A    r_hs (45 Ohm) from DP and from DM to GND (HS termination;
+//                   in the USB3320 the FS drivers in SE0 do this instead)
+//   PD_EN_A0        r_pd (15 kOhm) from DP to GND (host / OTG)
+//   PD_EN_A1        r_pd from DM to GND
+//   r_sw: on-resistance of the switches, t_sw: switching time.
+//-----------------------------------------------------------------------------
+module afe_term (DP_PULLUP_EN_A, HS_TERM_EN_A, PD_EN_A0, PD_EN_A1, DP, DM, VDD33, GND);
+    input      DP_PULLUP_EN_A, HS_TERM_EN_A, PD_EN_A0, PD_EN_A1;
+    inout      DP, DM, VDD33, GND;
+    electrical DP_PULLUP_EN_A, HS_TERM_EN_A, PD_EN_A0, PD_EN_A1, DP, DM, VDD33, GND;
+
+    parameter real r_pu      = 1500.0  from (0:inf);
+    parameter real r_hs      = 45.0    from (0:inf);
+    parameter real r_pd      = 15000.0 from (0:inf);
+    parameter real r_sw      = 0.0     from [0:inf);
+    parameter real t_sw      = 1e-9    from (0:inf);
+    parameter real vth_logic = 0.9;
+
+    integer pu, hs, pdp, pdm;
+
+    analog begin
+        @(cross(V(DP_PULLUP_EN_A, GND) - vth_logic, 0) or cross(V(HS_TERM_EN_A, GND) - vth_logic, 0) or
+          cross(V(PD_EN_A0, GND) - vth_logic, 0) or cross(V(PD_EN_A1, GND) - vth_logic, 0));
+        pu  = (V(DP_PULLUP_EN_A, GND) > vth_logic);
+        hs  = (V(HS_TERM_EN_A, GND)   > vth_logic);
+        pdp = (V(PD_EN_A0, GND)     > vth_logic);
+        pdm = (V(PD_EN_A1, GND)     > vth_logic);
+
+        I(VDD33, DP) <+ transition(pu,  0, t_sw) * V(VDD33, DP) / (r_pu + r_sw);
+        I(DP, GND)   <+ transition(hs,  0, t_sw) * V(DP, GND)   / (r_hs + r_sw);
+        I(DM, GND)   <+ transition(hs,  0, t_sw) * V(DM, GND)   / (r_hs + r_sw);
+        I(DP, GND)   <+ transition(pdp, 0, t_sw) * V(DP, GND)   / (r_pd + r_sw);
+        I(DM, GND)   <+ transition(pdm, 0, t_sw) * V(DM, GND)   / (r_pd + r_sw);
+    end
+endmodule
+
+//-----------------------------------------------------------------------------
+// afe_transceiver: HS TX + FS / LS transceiver + terminations on DP / DM
+//-----------------------------------------------------------------------------
+module afe_transceiver (TX_IN_P, TX_IN_N, TX_EN, TX_I_5U, TX_VREF, TX_CAP_P, TX_CAP_N,
+                        FS_OE_A, FS_DAT_A, FS_SE0_A, FS_LS_A, FS_RX_EN_A,
+                        RXRCV_A, RXDP_A, RXDM_A,
+                        DP_PULLUP_EN_A, HS_TERM_EN_A, PD_EN_A0, PD_EN_A1,
+                        DP, DM, VDD33, VDD18, GND);
+    input        TX_IN_P, TX_IN_N, TX_EN, TX_I_5U, TX_VREF;
+    input        FS_OE_A, FS_DAT_A, FS_SE0_A, FS_LS_A, FS_RX_EN_A;
+    input        DP_PULLUP_EN_A, HS_TERM_EN_A, PD_EN_A0, PD_EN_A1;
+    output       RXRCV_A, RXDP_A, RXDM_A;
+    inout        TX_CAP_P, TX_CAP_N, DP, DM, VDD33, VDD18, GND;
+    electrical   TX_IN_P, TX_IN_N, TX_EN, TX_I_5U, TX_VREF, TX_CAP_P, TX_CAP_N,
+                 FS_OE_A, FS_DAT_A, FS_SE0_A, FS_LS_A, FS_RX_EN_A,
+                 RXRCV_A, RXDP_A, RXDM_A, DP_PULLUP_EN_A, HS_TERM_EN_A, PD_EN_A0, PD_EN_A1,
+                 DP, DM, VDD33, VDD18, GND;
+
+    parameter real    i_hs      = 17.78e-3;
+    parameter real    i_scale   = 1.0;
+    parameter real    t_en      = 20e-9;
+    parameter real    t_dly     = 0.5e-9;
+    parameter integer bias_mode = 0;
+    parameter real    t_fs      = 12.5e-9;
+    parameter real    t_ls      = 187.5e-9;
+    parameter real    r_fs_out  = 45.0;
+
+    afe_hs_tx #(.i_hs(i_hs), .i_scale(i_scale), .t_en(t_en), .t_dly(t_dly), .bias_mode(bias_mode))
+        i_hs_tx (.TX_IN_P(TX_IN_P), .TX_IN_N(TX_IN_N), .TX_EN(TX_EN), .TX_I_5U(TX_I_5U),
+                 .TX_VREF(TX_VREF), .TX_OUT_P(DP), .TX_OUT_N(DM),
+                 .TX_CAP_P(TX_CAP_P), .TX_CAP_N(TX_CAP_N), .TX_VDD(VDD33), .TX_GND(GND));
+
+    afe_fsls_xcvr #(.r_out(r_fs_out), .t_fs(t_fs), .t_ls(t_ls))
+        i_fsls (.FS_OE_A(FS_OE_A), .FS_DAT_A(FS_DAT_A), .FS_SE0_A(FS_SE0_A), .FS_LS_A(FS_LS_A),
+                .FS_RX_EN_A(FS_RX_EN_A), .RXRCV_A(RXRCV_A), .RXDP_A(RXDP_A), .RXDM_A(RXDM_A),
+                .DP(DP), .DM(DM), .VDD33(VDD33), .VDD18(VDD18), .GND(GND));
+
+    afe_term i_term (.DP_PULLUP_EN_A(DP_PULLUP_EN_A), .HS_TERM_EN_A(HS_TERM_EN_A),
+                     .PD_EN_A0(PD_EN_A0), .PD_EN_A1(PD_EN_A1), .DP(DP), .DM(DM), .VDD33(VDD33), .GND(GND));
+endmodule

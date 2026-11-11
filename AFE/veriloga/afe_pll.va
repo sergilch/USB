@@ -1,0 +1,165 @@
+//-----------------------------------------------------------------------------
+// afe_pll.va - idealized PLL (lower loop of the PLL-assisted CDR block)
+//
+// Verilog-A, for the mixed-signal simulation of the USB 2.0 PHY (phase A8 of
+// AFE_INTEGRATION_PLAN.md).  Documentation: AFE/doc/pll.md.  Pin list and
+// timing: DOC/afe_interface_spec.md 2, 3.3, 4.3.  Digital counterparts:
+// usb_pll_lock_det (lock detector, REFSEL decode), usb_clk_gen (ce60 / CLKOUT).
+// Same behaviour as the frequency-only Verilog model afe_pll_bm.v, but with a
+// real phase loop.
+//
+// Structure (as in the analog block description, AFE/view analog_block ...):
+//   CDR_FREF -> PFD (tri-state, ideal reset) -> charge pump (icp)
+//            -> passive filter: C4 shunt, R2 + C3 series     -> CDR_CH_OUT_PLL
+//            -> ring VCO, f = f_min + kvco * (V - v_fmin), limited to
+//               [f_min, f_max]                                -> CLK_BIT_A
+//            -> feedback divider N (fixed /20, or from REFSEL) -> PFD
+//   CDR_CH_OUT_PLL is a pin: it drives the coarse input CDR_V_IN_2 of the CDR
+//   VCO (afe_cdr.va), which has the same tuning curve (matched replica).
+//
+// Default loop: icp = 20 uA, kvco = 200 MHz/V, N = 20 -> bandwidth about
+//   1 MHz, phase margin 56 deg (C3 / C4 = 10).  480 MHz at 0.9 V.  The loop
+//   locks in a few microseconds; the spec budget is 45 us to +-0.08 % (4.3).
+//
+// Pins (logic pins: 1.8 V CMOS, threshold vth_logic, referred to VSS18A)
+//   CDR_FREF        in   reference clock, 24 MHz (19.2 MHz with REFSEL = 00)
+//   PLL_EN          in   1 = on.  0: VCO stopped, CLK_BIT_A low, PFD / CP off,
+//                        loop filter discharged (VCO restarts at f_min)
+//   REFSEL1/0       in   feedback divider select (prog_div = 1):
+//                        00 -> div_00 (25), 01 -> div_01 (20),
+//                        10 -> div_10 (20: 26 MHz needs a fractional divider,
+//                        the digital flags refsel_err), 11 -> div_11 (20)
+//                        prog_div = 0: fixed /div_01 (today's analog design)
+//   CLK_BIT_A       out  480 MHz clock to the digital (clk_bit), 0 / VDD18A
+//   REF_DIG         out  buffered CDR_FREF for the digital lock detector (Q7);
+//                        runs whenever the supply is up, independent of PLL_EN
+//   CDR_CH_OUT_PLL  io   loop filter node (control voltage)
+//   VDD18A, VSS18A       1.8 V analog supply.  Below vdd_min the PLL is off.
+//
+// Fault injection for the digital lock detector (static parameters)
+//   f_err   relative error of CLK_BIT_A against N * f_ref (e.g. 3e-3 = +0.3 %),
+//           as a broken feedback path would cause; 0 = healthy
+//   jit_rms rms period jitter of CLK_BIT_A (Gaussian, per period)
+//-----------------------------------------------------------------------------
+`include "constants.vams"
+`include "disciplines.vams"
+
+module afe_pll (CDR_FREF, PLL_EN, REFSEL1, REFSEL0, CLK_BIT_A, REF_DIG, CDR_CH_OUT_PLL,
+                VDD18A, VSS18A);
+    input        CDR_FREF, PLL_EN, REFSEL1, REFSEL0;
+    output       CLK_BIT_A, REF_DIG;
+    inout        CDR_CH_OUT_PLL, VDD18A, VSS18A;
+    electrical   CDR_FREF, PLL_EN, REFSEL1, REFSEL0, CLK_BIT_A, REF_DIG, CDR_CH_OUT_PLL, VDD18A, VSS18A;
+    electrical   n_z;                                   // R2 / C3 midpoint
+
+    // VCO tuning curve (keep equal to afe_cdr.va: matched replica)
+    parameter real    f_min     = 400e6   from (0:inf);
+    parameter real    f_max     = 500e6   from (f_min:inf);
+    parameter real    kvco      = 200e6   from (0:inf);   // Hz/V
+    parameter real    v_fmin    = 0.5;                    // V at f_min
+    // charge pump and loop filter
+    parameter real    icp       = 20e-6   from (0:inf);
+    parameter real    r2        = 34.5e3  from (0:inf);
+    parameter real    c3        = 15.3e-12 from (0:inf);
+    parameter real    c4        = 1.53e-12 from (0:inf);
+    parameter real    v_cp_marg = 0.1     from [0:inf);   // CP compliance to the rails
+    parameter real    r_dis     = 1e3     from (0:inf);   // filter discharge while off
+    // feedback divider
+    parameter integer prog_div  = 1       from [0:1];
+    parameter integer div_00    = 25      from [1:inf);
+    parameter integer div_01    = 20      from [1:inf);
+    parameter integer div_10    = 20      from [1:inf);
+    parameter integer div_11    = 20      from [1:inf);
+    // interface
+    parameter real    vth_logic = 0.9;                    // V, logic input threshold
+    parameter real    vdd_min   = 1.5;                    // V, supply-good threshold
+    parameter real    t_rf      = 50e-12  from (0:inf);   // output edges
+    parameter real    t_ref_dly = 0.2e-9  from [0:inf);   // CDR_FREF -> REF_DIG
+    parameter integer pts       = 10      from [4:inf);   // time steps per VCO period
+    // fault injection / non-idealities
+    parameter real    f_err     = 0.0     from (-0.5:0.5);
+    parameter real    jit_rms   = 0.0     from [0:inf);   // s
+    parameter integer seed0     = 7;
+
+    real    vdd, vc, freq, f_run, fc_up, fc_dn, phase, phase_fb, dt_j;
+    integer en, sup_ok, en_pin, up, dn, clk_q, ref_q, n_div, seed;
+
+    analog begin
+        @(initial_step) begin
+            up = 0; dn = 0; clk_q = 0; dt_j = 0.0; seed = seed0;
+        end
+
+        vdd = V(VDD18A, VSS18A);
+
+        // ---- enables (cross events only place time points at the switch) ----
+        @(cross(V(PLL_EN, VSS18A) - vth_logic, 0));
+        @(cross(vdd - vdd_min, 0));
+        en_pin = (V(PLL_EN, VSS18A) > vth_logic);
+        sup_ok = (vdd > vdd_min);
+        en     = en_pin && sup_ok;
+
+        // ---- feedback divider ----
+        if (prog_div == 0)
+            n_div = div_01;
+        else if (V(REFSEL1, VSS18A) > vth_logic)
+            n_div = (V(REFSEL0, VSS18A) > vth_logic) ? div_11 : div_10;
+        else
+            n_div = (V(REFSEL0, VSS18A) > vth_logic) ? div_01 : div_00;
+
+        // ---- VCO ----
+        vc   = V(CDR_CH_OUT_PLL, VSS18A);
+        freq = f_min + kvco * (vc - v_fmin);
+        if (freq < f_min) freq = f_min;
+        if (freq > f_max) freq = f_max;
+        f_run = en ? freq : 0.0;                        // phase frozen while off
+        if (en) $bound_step(1.0 / (pts * f_max));
+
+        phase    = idtmod(f_run * (1.0 - dt_j * f_run), 0.0, 1.0, -0.5);
+        phase_fb = idtmod(f_run / (n_div * (1.0 + f_err)), 0.0, 1.0, -0.5);
+
+        @(cross(phase + 0.25, +1)) begin                // VCO rising edge
+            clk_q = 1;
+            if (jit_rms > 0.0) dt_j = jit_rms * $rdist_normal(seed, 0.0, 1.0);
+        end
+        @(cross(phase - 0.25, +1)) clk_q = 0;           // VCO falling edge
+
+        // ---- PFD (tri-state, ideal reset: no dead zone, no reset pulse) ----
+        @(cross(V(CDR_FREF, VSS18A) - vth_logic, +1)) begin
+            if (en) begin
+                if (dn) dn = 0; else up = 1;
+            end
+        end
+        @(cross(phase_fb, +1)) begin                     // divider output edge
+            if (en) begin
+                if (up) up = 0; else dn = 1;
+            end
+        end
+        @(cross(V(PLL_EN, VSS18A) - vth_logic, -1) or cross(vdd - vdd_min, -1)) begin
+            up = 0; dn = 0;
+        end
+
+        // ---- REF_DIG buffer state ----
+        @(cross(V(CDR_FREF, VSS18A) - vth_logic, 0));
+        ref_q = (V(CDR_FREF, VSS18A) > vth_logic);
+
+        // ---- charge pump with smooth compliance to the rails ----
+        fc_up = 0.5 * (1.0 + tanh((vdd - v_cp_marg - vc) / 0.02));
+        fc_dn = 0.5 * (1.0 + tanh((vc - v_cp_marg) / 0.02));
+        I(CDR_CH_OUT_PLL, VSS18A) <+ -icp * (transition(up, 0, t_rf) * fc_up
+                                           - transition(dn, 0, t_rf) * fc_dn);
+
+        // ---- loop filter: C4 shunt, R2 + C3 series; discharged while off ----
+        I(CDR_CH_OUT_PLL, VSS18A) <+ c4 * ddt(V(CDR_CH_OUT_PLL, VSS18A));
+        I(CDR_CH_OUT_PLL, n_z)    <+ V(CDR_CH_OUT_PLL, n_z) / r2;
+        I(n_z, VSS18A)            <+ c3 * ddt(V(n_z, VSS18A));
+        I(CDR_CH_OUT_PLL, VSS18A) <+ transition(en ? 0.0 : 1.0, 0, 1e-9)
+                                     * V(CDR_CH_OUT_PLL, VSS18A) / r_dis;
+        I(n_z, VSS18A)            <+ transition(en ? 0.0 : 1.0, 0, 1e-9)
+                                     * V(n_z, VSS18A) / r_dis;
+
+        // ---- outputs ----
+        V(CLK_BIT_A, VSS18A) <+ vdd * transition((en && clk_q) ? 1.0 : 0.0, 0, t_rf);
+        V(REF_DIG, VSS18A)   <+ vdd * transition((sup_ok && ref_q) ? 1.0 : 0.0,
+                                                 t_ref_dly, t_rf);
+    end
+endmodule

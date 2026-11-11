@@ -1,0 +1,115 @@
+//-----------------------------------------------------------------------------
+// afe_ldo.va - idealized 3.3 V -> 1.8 V low-dropout regulator with power-good
+//              and power-on reset
+//
+// Verilog-A, for the mixed-signal simulation of the USB 2.0 PHY (phase A8 of
+// AFE_INTEGRATION_PLAN.md).  Documentation: AFE/doc/ldo.md.  Supplies and
+// power sequence: DOC/afe_interface_spec.md 1, 3.6, 5 (open question Q13:
+// internal LDO as in the USB3320, or external 1.8 V).  This block is not
+// designed yet; the model fixes what the digital expects from it.
+//
+// Use: one instance per 1.8 V domain, VDD18 (digital core, ULPI pads) and
+//   VDD18A (PLL + CDR).  VDD33 = VIN.  An external (or on-chip) output
+//   capacitor and the load sit at VOUT in the testbench.
+//
+// Behaviour
+//   * Regulation: VOUT is a Thevenin source v_set behind r_out (load
+//     regulation), with a smooth current limit i_lim (source) / i_sink (sink).
+//     v_set = vout_nom * soft-start ramp + PSRR term, limited by the dropout:
+//     v_set <= VIN - v_drop.  The target follows with a single pole at f_bw
+//     (loop bandwidth: line steps and the soft start, not the load response,
+//     which is the r_out / capacitor time constant).
+//   * PSRR (DC): a VIN change dv appears at VOUT as dv * 10^(-psrr_db / 20).
+//   * Soft start: v_set ramps 0 -> vout_nom in t_ss after enable; off ramps
+//     down in t_off and an active discharge r_dis pulls VOUT to GND.
+//   * Enable: LDO_EN high (threshold vth_en, absolute: works with 1.8 V and
+//     3.3 V logic) and VIN above the UVLO (uvlo_r rising, uvlo_f falling).
+//     The digital core cannot enable its own supply: for the VDD18 instance
+//     LDO_EN must be tied high (or come from a pin / the VDD33 domain); the
+//     power sequencer may switch only the VDD18A instance (spec 5).
+//   * Quiescent current i_q from VIN while enabled.
+// Outputs (swing 0 .. V(VOUT), i.e. valid in the domain they supervise)
+//   PWR_GOOD  1 once VOUT > pg_r for t_pg, 0 at once when VOUT < pg_f
+//             (default 1.62 V / 1.55 V: 1.8 V - 10 %, the library's lowest corner)
+//   POR_N     follows PWR_GOOD with a further delay t_por on release, falls
+//             with it (power-on reset of the digital: por_n, rst_n of
+//             usb_clk_gen / usb_pll_lock_det)
+//-----------------------------------------------------------------------------
+`include "constants.vams"
+`include "disciplines.vams"
+
+module afe_ldo (VIN, VOUT, GND, LDO_EN, PWR_GOOD, POR_N);
+    input      LDO_EN;
+    output     PWR_GOOD, POR_N;
+    inout      VIN, VOUT, GND;
+    electrical VIN, VOUT, GND, LDO_EN, PWR_GOOD, POR_N;
+    electrical n_set;                                   // filtered target
+
+    parameter real vout_nom = 1.8     from (0:inf);
+    parameter real vin_nom  = 3.3     from (0:inf);
+    parameter real v_drop   = 0.2     from [0:inf);
+    parameter real r_out    = 0.05    from (0:inf);
+    parameter real i_lim    = 50e-3   from (0:inf);
+    parameter real i_sink   = 1e-3    from (0:inf);
+    parameter real i_q      = 50e-6   from [0:inf);
+    parameter real psrr_db  = 40.0    from [0:inf);
+    parameter real f_bw     = 1e6     from (0:inf);
+    parameter real t_ss     = 50e-6   from (0:inf);
+    parameter real t_off    = 1e-6    from (0:inf);
+    parameter real r_dis    = 1e3     from (0:inf);
+    parameter real vth_en   = 0.9;
+    parameter real uvlo_r   = 2.7;
+    parameter real uvlo_f   = 2.5;
+    parameter real pg_r     = 1.62;
+    parameter real pg_f     = 1.55;
+    parameter real t_pg     = 10e-6   from [0:inf);
+    parameter real t_por    = 100e-6  from [0:inf);
+    parameter real t_rf     = 10e-9   from (0:inf);
+
+    real    v_tgt, v_set, i_raw, i_out, t_pgc, t_porc;
+    integer uv_ok, en, pg, por;
+
+    analog begin
+        @(initial_step) begin
+            uv_ok = (V(VIN, GND) > uvlo_r);
+            pg = 0; por = 0; t_pgc = 1e9; t_porc = 1e9;
+        end
+
+        // UVLO with hysteresis, enable
+        @(cross(V(VIN, GND) - uvlo_r, +1)) uv_ok = 1;
+        @(cross(V(VIN, GND) - uvlo_f, -1)) uv_ok = 0;
+        @(cross(V(LDO_EN, GND) - vth_en, 0));
+        en = uv_ok && (V(LDO_EN, GND) > vth_en);
+
+        // target: soft start, PSRR, dropout, loop pole
+        v_tgt = vout_nom * transition(en ? 1.0 : 0.0, 0, t_ss, t_off)
+                + (V(VIN, GND) - vin_nom) * pow(10.0, -psrr_db / 20.0) * (en ? 1.0 : 0.0);
+        v_set = min(v_tgt, max(V(VIN, GND) - v_drop, 0.0));
+        I(n_set, GND) <+ (V(n_set, GND) - v_set);
+        I(n_set, GND) <+ ddt(V(n_set, GND)) / (`M_TWO_PI * f_bw);
+
+        // pass device: Thevenin source with smooth current limits, from VIN
+        i_raw = (V(n_set, GND) - V(VOUT, GND)) / r_out;
+        i_out = (i_raw >= 0.0) ? i_lim * tanh(i_raw / i_lim) : i_sink * tanh(i_raw / i_sink);
+        I(VIN, VOUT) <+ i_out;
+        I(VOUT, GND) <+ transition(en ? 0.0 : 1.0, 0, t_rf) * V(VOUT, GND) / r_dis;
+        I(VIN, GND)  <+ i_q * transition(en ? 1.0 : 0.0, 0, t_rf);
+
+        // power good / power-on reset
+        @(cross(V(VOUT, GND) - pg_r, +1)) t_pgc = $abstime + t_pg;
+        @(cross(V(VOUT, GND) - pg_f, -1)) begin
+            pg = 0; por = 0; t_pgc = 1e9; t_porc = 1e9;
+        end
+        @(timer(t_pgc)) begin
+            if (V(VOUT, GND) > pg_f) begin pg = 1; t_porc = $abstime + t_por; end
+            t_pgc = 1e9;
+        end
+        @(timer(t_porc)) begin
+            if (pg) por = 1;
+            t_porc = 1e9;
+        end
+
+        V(PWR_GOOD, GND) <+ V(VOUT, GND) * transition(pg  ? 1.0 : 0.0, 0, t_rf);
+        V(POR_N, GND)    <+ V(VOUT, GND) * transition(por ? 1.0 : 0.0, 0, t_rf);
+    end
+endmodule
