@@ -165,7 +165,7 @@ Copy the integration testbenches' file lists from their headers.
 
 ## Project status
 
-- ✅ The TX path and the RX datapath are complete. All 36 testbenches (32 for the RTL, 4 for the AFE behavioural models) pass with Icarus Verilog.
+- ✅ The TX path and the RX datapath are complete. All 38 testbenches (32 for the RTL, 2 Icarus shadows of the Spectre AMS testbenches, 4 for the AFE behavioural models) pass with Icarus Verilog.
 - ✅ TX data boundary to the AFE (`usb_afe_tx_if`: retiming, HS / FS / LS driver select, `TX_EN` lead / lag, idle clamp), verified through the AFE models; not wired into the top level yet.
 - ✅ HS receive boundary to the AFE (`usb_afe_rx_if`: RX / CDR enables, isolation, squelch-based CDR lock, squelch-latency compensation), with the lock-time margin measured through the AFE models; not wired into the top level yet.
 - ✅ Clocking: `ce60` / CLKOUT generator (`usb_clk_gen`, glitch-free start / stop) and the digital PLL lock detector (`usb_pll_lock_det`, REFSEL decode, loss-of-lock and dead-clock detection), verified with a PLL model; not wired into the top level yet.
@@ -191,6 +191,7 @@ The RTL and testbenches are all in the repository root:
 - `X-FAB/` (local only, not committed): X-FAB xh018 PDK files, i.e. the pad cell `BBSUD8F.v` with its UDPs (needed for `tb_usb_ulpi_phy_pads`) and the D_CELLS_JIHD standard-cell library (Liberty, LEF, Verilog)
 - `DOC/`: reference documentation (ULPI 1.1 specification, USB3300 datasheet) and the block diagrams (`DOC/Diagramm/`)
 - `WORK_PLAN.md`: development plan for the complete digital section
+- `AFE/`: the analog team's block description, idealized Verilog-A models with Spectre testbenches (`AFE/veriloga/`) and the Spectre AMS testbenches that run them with the RTL (`AFE/ams/`, mirrored by the Icarus shadows `tb_ams_*_shadow.v`)
 - `AFE_INTEGRATION_PLAN.md`: plan for connecting the analog front end (HS RX, HS TX, CDR + PLL) to the digital core, open interface questions, and the analog and digital blocks still missing
 
 ## References

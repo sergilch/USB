@@ -9,6 +9,7 @@ This directory holds the analog side of the USB 2.0 PHY:
 | `view analog_block USB 2.0 High.md` | The analog team's description of the existing transistor-level blocks: HS RX, HS TX, and the PLL-assisted CDR |
 | `veriloga/*.va` | Idealized Verilog-A models of the AFE blocks, aligned with the digital RTL |
 | `veriloga/tb/` | One testbench per block: a Verilog-A stimulus / checker module (`tb_afe_*.va`), a Spectre netlist (`tb_afe_*.scs`), shared macros (`tb_afe_common.vams`) and the runner `run_va_tests.sh` |
+| `ams/` | Spectre AMS (xrun -ams) testbenches with the digital RTL, connect rules, runner; see [ams/README.md](ams/README.md) |
 | `doc/*.md` | One document per model: pins, behaviour, parameters, alignment with the digital side |
 
 The Verilog-A models are the analog-simulator counterpart of the event-driven Verilog models `afe_*_bm.v` in the repository root. Those models run in Icarus with the digital testbenches. The Verilog-A models are for the mixed-signal phase **A8** of `AFE_INTEGRATION_PLAN.md`: the digital netlist co-simulated with analog blocks in Spectre AMS. They can stand in for blocks that are not designed yet, and they serve as the reference that the transistor-level blocks are checked against.
@@ -120,7 +121,7 @@ To vary a model parameter, override it on the `DUT` line of the netlist (for exa
 | Structural lint: `begin`/`end` and `module`/`endmodule` balanced, every assigned variable declared, brackets balanced | done (script, 2026-11-11) |
 | Testbenches written (one per block, `veriloga/tb/`); netlist node counts checked against the module port lists | done (2026-11-11) |
 | Compile the models and testbenches, run `run_va_tests.sh` in Spectre | **open**: no simulator here. Expect a few syntax fixes on the first compile, and expect some check windows to need adjusting once real waveforms show up |
-| Spectre AMS with the digital netlist | open (phase A8) |
+| Spectre AMS with the digital netlist | testbenches written (2026-11-11, `AFE/ams/`: `tb_ams_link` two-ended line FS + chirp + HS, `tb_ams_pwr` LDOs + PLL + power sequencer), statically checked, their digital half and sequences pass in the Icarus shadows; **not run**: no AMS simulator here |
 | Correlation with `afe_*_bm.v` | open: same defaults by construction, not compared in simulation |
 
 ## Open points that change these models

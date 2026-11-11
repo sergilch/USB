@@ -1,0 +1,87 @@
+//-----------------------------------------------------------------------------
+// tb_ams_pwr.vams - Spectre AMS: supplies, LDOs, PLL and the digital power /
+//                   clock control (phase A8)
+//
+// Run from the repository root (AFE/ams/run_ams_tests.sh pwr does this and
+// puts the output into build/ams/tb_ams_pwr/):
+//   xrun -ams -timescale 1ns/1ps -access +r -incdir AFE/ams \
+//        -analogcontrol AFE/ams/amscf_pwr.scs -amsconnrules usb_cr \
+//        AFE/ams/lib/usb_connect.vams AFE/ams/lib/ams_prims.va \
+//        AFE/veriloga/afe_ldo.va AFE/veriloga/afe_pll.va \
+//        usb_pwr_seq.v usb_pll_lock_det.v usb_clk_gen.v \
+//        AFE/ams/tb_ams_pwr.vams -top tb_ams_pwr
+//
+// Structure
+//   ams_vsup V33: VDD33 ramps 0 -> 3.3 V in 100 us when vin_on rises
+//   afe_ldo LDOD: VDD33 -> VDD18 (digital), always enabled; its POR_N is the
+//                 digital por_n (resets usb_pwr_seq, usb_pll_lock_det,
+//                 usb_clk_gen)
+//   afe_ldo LDOA: VDD33 -> VDD18A (PLL), LDO_EN from usb_pwr_seq (= por_n);
+//                 its PWR_GOOD is pg18a
+//   24 MHz reference (digital) -> afe_pll CDR_FREF; REFSEL = 01 (/20);
+//   CLK_BIT_A -> clk_bit, REF_DIG -> ref_clk of the digital
+//   usb_pwr_seq + usb_pll_lock_det + usb_clk_gen as in tb_usb_pwr_seq
+//   pwr_good (VDD33 comparator, not modelled) is set by the stimulus once the
+//   ramp is complete.  1 uF on each LDO output.
+//   Stimulus and checks: AFE/ams/ams_pwr_seq.vh, shared with the Icarus
+//   shadow tb_ams_pwr_shadow.v (afe_pll_bm, the LDOs as delays), which runs in
+//   every ./run_tests.sh.
+//
+// Result line: TEST PASSED / TEST FAILED: <n> error(s) / TEST FAILED: timeout
+//   (digital watchdog 1.5 ms).  Simulated time about 450 us (480 MHz VCO
+//   throughout the lock phases).
+// Status: not run yet (no AMS simulator on the development machine); the
+//   digital chain and the sequence pass in tb_ams_pwr_shadow.v.
+//-----------------------------------------------------------------------------
+`include "disciplines.vams"
+`timescale 1ns/1ps
+
+module tb_ams_pwr;
+    localparam real VIN_RAMP = 100000.0;
+    localparam real T_XO     = 1000.0 / 24.0;
+
+    reg vin_on = 1'b0, pwr_good = 1'b0, susp_req = 1'b0, clk_susp = 1'b0, wake = 1'b0;
+
+    // ---------------- supplies ----------------
+    electrical gnd;
+    ground     gnd;
+    electrical vdd33, vdd18, vdd18a, pg18, porn_a, vctl;
+    ams_vsup #(.v1(3.3), .t_ramp(100e-6)) V33 (.EN(vin_on), .p(vdd33), .n(gnd));
+
+    wire por_n, pg18a, ldo_en;
+    afe_ldo LDOD (.VIN(vdd33), .VOUT(vdd18),  .GND(gnd), .LDO_EN(vdd33),  .PWR_GOOD(pg18),  .POR_N(por_n));
+    afe_ldo LDOA (.VIN(vdd33), .VOUT(vdd18a), .GND(gnd), .LDO_EN(ldo_en), .PWR_GOOD(pg18a), .POR_N(porn_a));
+    ams_cap #(.c(1e-6)) CD (.p(vdd18), .n(gnd));
+    ams_cap #(.c(1e-6)) CA (.p(vdd18a), .n(gnd));
+
+    // ---------------- reference, PLL ----------------
+    reg xo = 1'b0;
+    always #(T_XO / 2.0) xo = ~xo;
+    wire refsel1 = 1'b0, refsel0 = 1'b1;
+    wire clk_bit, ref_clk;
+    wire pll_lock, lol, refsel_err, ce60, clk60, clk_on;
+    wire [4:0] fb_div;
+    wire bias_en, pll_en, iso_en, core_rst_n_b, iso_en_b, afe_en_b, dir_hold_b, clk_en_b, pll_err;
+    wire [3:0] state;
+
+    afe_pll PLL (.CDR_FREF(xo), .PLL_EN(pll_en), .REFSEL1(refsel1), .REFSEL0(refsel0),
+                 .CLK_BIT_A(clk_bit), .REF_DIG(ref_clk), .CDR_CH_OUT_PLL(vctl),
+                 .VDD18A(vdd18a), .VSS18A(gnd));
+
+    // ---------------- digital ----------------
+    usb_pll_lock_det u_ld (.clk_bit(clk_bit), .ref_clk(ref_clk), .rst_n(por_n), .pll_en(pll_en),
+                           .refsel(2'b01), .lol_clr(1'b0), .pll_lock(pll_lock), .lol(lol),
+                           .fb_div(fb_div), .refsel_err(refsel_err));
+    usb_clk_gen u_cg (.clk_bit(clk_bit), .rst_n(por_n), .clk_en(clk_en_b),
+                      .ce60(ce60), .clk60(clk60), .clk_on(clk_on));
+    usb_pwr_seq u_seq (
+        .ref_clk(ref_clk), .clk_bit(clk_bit), .por_n(por_n),
+        .pwr_good(pwr_good), .pg18a(pg18a), .pll_lock(pll_lock), .clk_on(clk_on),
+        .susp_req(susp_req), .clk_susp(clk_susp), .wake(wake),
+        .bias_en(bias_en), .ldo_en(ldo_en), .pll_en(pll_en), .iso_en(iso_en),
+        .core_rst_n_b(core_rst_n_b), .iso_en_b(iso_en_b), .afe_en_b(afe_en_b),
+        .dir_hold_b(dir_hold_b), .clk_en_b(clk_en_b), .state(state), .pll_err(pll_err));
+
+    `define AMS_V18A $cds_get_analog_value("tb_ams_pwr.vdd18a")
+    `include "ams_pwr_seq.vh"
+endmodule

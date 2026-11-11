@@ -1,0 +1,53 @@
+//-----------------------------------------------------------------------------
+// ams_prims.va - sources and passives for the Spectre AMS testbenches
+//
+// Small Verilog-A primitives so that the AMS testbench tops (AFE/ams/*.vams)
+// need no Spectre primitive cells and stay one Verilog-AMS netlist:
+//   ams_vdc   (p, n)          V = dc
+//   ams_vsup  (EN, p, n)      supply switched by a 1.8 V logic pin: ramps from
+//                             0 to v1 in t_ramp when EN rises above 0.9 V, back
+//                             to 0 in t_ramp when it falls; r_src series
+//   ams_res   (p, n)          resistor r
+//   ams_cap   (p, n)          capacitor c (with ic)
+// Status: not compiled yet (no Verilog-A simulator on the development
+//   machine); Gnucap modelgen-verilog accepts ams_vdc / ams_res / ams_cap.
+//-----------------------------------------------------------------------------
+`include "constants.vams"
+`include "disciplines.vams"
+
+module ams_vdc (p, n);
+    inout p, n;
+    electrical p, n;
+    parameter real dc = 0.0;
+    analog V(p, n) <+ dc;
+endmodule
+
+module ams_vsup (EN, p, n);
+    input EN;
+    inout p, n;
+    electrical EN, p, n;
+    parameter real v1     = 3.3;
+    parameter real t_ramp = 10e-6   from (0:inf);
+    parameter real r_src  = 0.01    from (0:inf);
+    parameter real vth    = 0.9;
+    integer on;
+    analog begin
+        @(initial_step) on = (V(EN) > vth);
+        @(cross(V(EN) - vth, 0)) on = (V(EN) > vth);
+        I(p, n) <+ (V(p, n) - transition(on ? v1 : 0.0, 0.0, t_ramp)) / r_src;
+    end
+endmodule
+
+module ams_res (p, n);
+    inout p, n;
+    electrical p, n;
+    parameter real r = 1e3 from (0:inf);
+    analog I(p, n) <+ V(p, n) / r;
+endmodule
+
+module ams_cap (p, n);
+    inout p, n;
+    electrical p, n;
+    parameter real c  = 1e-12 from [0:inf);
+    analog I(p, n) <+ c * ddt(V(p, n));
+endmodule

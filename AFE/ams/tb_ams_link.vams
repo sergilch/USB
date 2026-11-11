@@ -1,0 +1,129 @@
+//-----------------------------------------------------------------------------
+// tb_ams_link.vams - Spectre AMS: two PHY ends on one line through the
+//                    Verilog-A AFE models (phase A8)
+//
+// Run from the repository root (AFE/ams/run_ams_tests.sh link does this and
+// puts the output into build/ams/tb_ams_link/):
+//   xrun -ams -timescale 1ns/1ps -access +r -incdir AFE/ams \
+//        -analogcontrol AFE/ams/amscf_link.scs -amsconnrules usb_cr \
+//        AFE/ams/lib/usb_connect.vams AFE/ams/lib/ams_prims.va \
+//        AFE/veriloga/afe_transceiver.va AFE/veriloga/afe_receiver.va \
+//        AFE/veriloga/afe_cdr.va \
+//        usb_bit_stuffer.v usb_nrzi_encoder.v usb_tx_serializer.v usb_tx_path.v \
+//        usb_afe_tx_if.v usb_afe_rx_if.v usb_rx_nrzi_decoder.v usb_rx_sync_detect.v \
+//        usb_rx_bit_unstuffer.v usb_rx_deserializer.v usb_rx_eop_check.v \
+//        usb_rx_decoder.v usb_rx_elastic_buffer.v usb_rx_hs_frontend.v \
+//        usb_rx_fsls_frontend.v usb_rx_datapath.v usb_rx_status_flt.v \
+//        usb_rx_status_sync.v usb_line_state.v usb_mode_term_ctrl.v \
+//        AFE/ams/ams_phy_end.v AFE/ams/tb_ams_link.vams -top tb_ams_link
+//
+// Structure: per end (device, host +400 ppm) one ams_phy_end (digital RTL +
+//   Link hooks, plain Verilog) and its AFE:
+//     afe_transceiver  HS current driver, FS / LS driver + receivers,
+//                      1.5 kOhm pull-up, 45 Ohm terminations, 15 kOhm pull-downs
+//     afe_receiver     HS receiver, squelch, disconnect
+//     afe_cdr          bang-bang CDR; coarse input CDR_V_IN_2 = 0.9 V, the
+//                      PLL's control voltage at 480 MHz (afe_pll.va), so the
+//                      PLL itself is not simulated here (see tb_ams_pwr)
+//   Both ends share DP / DM (no cable; a transmission line can go in between).
+//   Every digital <-> electrical net gets a connect module from usb_cr
+//   (AFE/ams/lib/usb_connect.vams): 1.8 V, threshold 0.9 V.
+//   The Link models, sequence and checks are AFE/ams/ams_link_seq.vh, shared
+//   with the Icarus shadow tb_ams_link_shadow.v (same ends, afe_*_bm.v models),
+//   which runs in every ./run_tests.sh.
+//
+// Supplies: VDD33 3.3 V, VDD18 / VDD18A 1.8 V (ideal), TX_VREF / RX_VREF 1.2 V
+//   (bias_mode 0: not used by the models), TX_I_5U to ground, TX_CAP_P/N to
+//   DP / DM as in tb_afe_transceiver.scs.
+//
+// Result line: TEST PASSED / TEST FAILED: <n> error(s) / TEST FAILED: timeout
+//   (digital watchdog 500 us).  Simulated time about 85 us.
+// Status: not run yet (no AMS simulator on the development machine); the
+//   digital half and the sequence pass in tb_ams_link_shadow.v.
+//-----------------------------------------------------------------------------
+`include "disciplines.vams"
+`timescale 1ns/1ps
+
+module tb_ams_link;
+    parameter real HALF  = 1.0416667;
+    parameter real PPM_H = 400.0;
+
+    reg clk_d = 1'b0, clk_h = 1'b0;
+    always #(HALF) clk_d = ~clk_d;
+    always #(HALF / (1.0 + PPM_H * 1.0e-6)) clk_h = ~clk_h;
+    reg rst_n = 1'b0;
+
+    // ---------------- supplies, line ----------------
+    electrical gnd;
+    ground     gnd;
+    electrical vdd33, vdd18, vdd18a, vref12, vcoarse;
+    electrical dp, dm;
+    ams_vdc #(.dc(3.3)) V33  (.p(vdd33), .n(gnd));
+    ams_vdc #(.dc(1.8)) V18  (.p(vdd18), .n(gnd));
+    ams_vdc #(.dc(1.8)) V18A (.p(vdd18a), .n(gnd));
+    ams_vdc #(.dc(1.2)) VREF (.p(vref12), .n(gnd));
+    ams_vdc #(.dc(0.9)) VCO  (.p(vcoarse), .n(gnd));
+
+    wire fs_rx_en = 1'b1;          // FS / LS receivers always on
+
+    // ---------------- device ----------------
+    wire d_pu, d_pum, d_hst, d_pdp, d_pdm, d_hp, d_hn, d_hen, d_foe, d_fdat, d_fse0, d_fls;
+    wire d_rxen, d_cdren, d_clkrx, d_rxd, d_sq, d_disc, d_rdp, d_rdm, d_rcv;
+    electrical d_rx_p, d_rx_n, d_cdr_ch;
+    ams_phy_end #(.HOST(0), .SEED(21)) dev (
+        .clk(clk_d), .rst_n(rst_n),
+        .dp_pullup_en(d_pu), .dm_pullup_en(d_pum), .hs_term_en(d_hst),
+        .dp_pulldown_en(d_pdp), .dm_pulldown_en(d_pdm),
+        .hs_tx_p(d_hp), .hs_tx_n(d_hn), .hs_tx_en(d_hen),
+        .fs_oe(d_foe), .fs_dat(d_fdat), .fs_se0(d_fse0), .fs_ls(d_fls),
+        .rx_en_hs(d_rxen), .cdr_en(d_cdren),
+        .clk_rx(d_clkrx), .hs_rxd_a(d_rxd), .squelch_a(d_sq), .disc_a(d_disc),
+        .rxdp_a(d_rdp), .rxdm_a(d_rdm), .rxrcv_a(d_rcv));
+    afe_transceiver D_XCVR (
+        .TX_IN_P(d_hp), .TX_IN_N(d_hn), .TX_EN(d_hen), .TX_I_5U(gnd), .TX_VREF(vref12),
+        .TX_CAP_P(dp), .TX_CAP_N(dm),
+        .FS_OE_A(d_foe), .FS_DAT_A(d_fdat), .FS_SE0_A(d_fse0), .FS_LS_A(d_fls), .FS_RX_EN_A(fs_rx_en),
+        .RXRCV_A(d_rcv), .RXDP_A(d_rdp), .RXDM_A(d_rdm),
+        .DP_PULLUP_EN_A(d_pu), .HS_TERM_EN_A(d_hst), .PD_EN_A0(d_pdp), .PD_EN_A1(d_pdm),
+        .DP(dp), .DM(dm), .VDD33(vdd33), .VDD18(vdd18), .GND(gnd));
+    afe_receiver D_RX (
+        .RX_IN_P(dp), .RX_IN_N(dm), .RX_EN(d_rxen), .RX_VREF(vref12),
+        .RX_OUT_P(d_rx_p), .RX_OUT_N(d_rx_n), .SQUELCH_A(d_sq), .DISC_A(d_disc),
+        .RX_VDD(vdd33), .RX_GND(gnd), .RX_VDDO(vdd18));
+    afe_cdr D_CDR (
+        .CDR_DATA(d_rx_p), .CDR_EN(d_cdren), .CDR_V_IN_2(vcoarse), .CLK_RX(d_clkrx),
+        .HS_RXD(d_rxd), .CDR_CH_OUT(d_cdr_ch), .VDD18A(vdd18a), .VSS18A(gnd));
+
+    // ---------------- host ----------------
+    wire h_pu, h_pum, h_hst, h_pdp, h_pdm, h_hp, h_hn, h_hen, h_foe, h_fdat, h_fse0, h_fls;
+    wire h_rxen, h_cdren, h_clkrx, h_rxd, h_sq, h_disc, h_rdp, h_rdm, h_rcv;
+    electrical h_rx_p, h_rx_n, h_cdr_ch;
+    ams_phy_end #(.HOST(1), .SEED(37)) host (
+        .clk(clk_h), .rst_n(rst_n),
+        .dp_pullup_en(h_pu), .dm_pullup_en(h_pum), .hs_term_en(h_hst),
+        .dp_pulldown_en(h_pdp), .dm_pulldown_en(h_pdm),
+        .hs_tx_p(h_hp), .hs_tx_n(h_hn), .hs_tx_en(h_hen),
+        .fs_oe(h_foe), .fs_dat(h_fdat), .fs_se0(h_fse0), .fs_ls(h_fls),
+        .rx_en_hs(h_rxen), .cdr_en(h_cdren),
+        .clk_rx(h_clkrx), .hs_rxd_a(h_rxd), .squelch_a(h_sq), .disc_a(h_disc),
+        .rxdp_a(h_rdp), .rxdm_a(h_rdm), .rxrcv_a(h_rcv));
+    afe_transceiver H_XCVR (
+        .TX_IN_P(h_hp), .TX_IN_N(h_hn), .TX_EN(h_hen), .TX_I_5U(gnd), .TX_VREF(vref12),
+        .TX_CAP_P(dp), .TX_CAP_N(dm),
+        .FS_OE_A(h_foe), .FS_DAT_A(h_fdat), .FS_SE0_A(h_fse0), .FS_LS_A(h_fls), .FS_RX_EN_A(fs_rx_en),
+        .RXRCV_A(h_rcv), .RXDP_A(h_rdp), .RXDM_A(h_rdm),
+        .DP_PULLUP_EN_A(h_pu), .HS_TERM_EN_A(h_hst), .PD_EN_A0(h_pdp), .PD_EN_A1(h_pdm),
+        .DP(dp), .DM(dm), .VDD33(vdd33), .VDD18(vdd18), .GND(gnd));
+    afe_receiver H_RX (
+        .RX_IN_P(dp), .RX_IN_N(dm), .RX_EN(h_rxen), .RX_VREF(vref12),
+        .RX_OUT_P(h_rx_p), .RX_OUT_N(h_rx_n), .SQUELCH_A(h_sq), .DISC_A(h_disc),
+        .RX_VDD(vdd33), .RX_GND(gnd), .RX_VDDO(vdd18));
+    afe_cdr H_CDR (
+        .CDR_DATA(h_rx_p), .CDR_EN(h_cdren), .CDR_V_IN_2(vcoarse), .CLK_RX(h_clkrx),
+        .HS_RXD(h_rxd), .CDR_CH_OUT(h_cdr_ch), .VDD18A(vdd18a), .VSS18A(gnd));
+
+    // line voltages for the shared sequence (Cadence AMS system function)
+    `define AMS_VDP $cds_get_analog_value("tb_ams_link.dp")
+    `define AMS_VDM $cds_get_analog_value("tb_ams_link.dm")
+    `include "ams_link_seq.vh"
+endmodule

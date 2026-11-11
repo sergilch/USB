@@ -1,0 +1,112 @@
+//-----------------------------------------------------------------------------
+// usb_connect.vams - connect modules and connect rules for the Spectre AMS
+//                    testbenches (AFE/ams)
+//
+// The digital RTL (usb_*.v, ams_phy_end.v) has plain Verilog ports (discipline
+// logic by default); the Verilog-A AFE models (AFE/veriloga) have electrical
+// ports.  AMS Designer inserts one of these modules wherever a net joins the
+// two, chosen by direction:
+//   usb_l2e   digital output -> analog input   (pin driver)
+//   usb_e2l   analog output  -> digital input  (pin receiver)
+//   usb_bidir inout on both sides               (not used by the testbenches
+//                                               yet; for the ULPI / pad level)
+//
+// Levels: the AFE logic pins are 1.8 V CMOS with the switching point at
+//   vth_logic = 0.9 V (AFE/README.md, conventions).  The drivers swing 0 / vsup
+//   with edges tr / tf behind rout; x / z drive vsup / 2 (it fails loudly at
+//   0.9 V thresholds).  The receivers have hysteresis vtlo .. vthi around 0.9 V
+//   and give x while the input sits between them for longer than tx (an
+//   undefined level stays visible in the digital waveforms; 0 disables it).
+//
+// Use: compile this file with the testbench and select the rules on the xrun
+//   command line:  xrun -ams ... AFE/ams/lib/usb_connect.vams -amsconnrules usb_cr
+//   (run_ams_tests.sh does this).  Parameters can be overridden per rule
+//   below, or per run with -defparam.
+//
+// Status: written against the Verilog-AMS LRM 2.4 and the AMS Designer flow;
+//   not compiled yet (no AMS simulator on the development machine).
+//-----------------------------------------------------------------------------
+`include "disciplines.vams"
+`timescale 1ns/1ps
+
+connectmodule usb_l2e (d, a);
+    input  d;
+    output a;
+    logic      d;
+    electrical a;
+
+    parameter real vsup = 1.8     from (0:inf);
+    parameter real tr   = 50e-12  from (0:inf);    // s
+    parameter real tf   = 50e-12  from (0:inf);
+    parameter real rout = 50.0    from (0:inf);    // Ohm
+
+    real vd;
+    initial vd = (d === 1'b1) ? vsup : (d === 1'b0) ? 0.0 : vsup / 2.0;
+    always @(d) vd = (d === 1'b1) ? vsup : (d === 1'b0) ? 0.0 : vsup / 2.0;
+
+    analog begin
+        I(a) <+ (V(a) - transition(vd, 0.0, tr, tf)) / rout;
+    end
+endmodule
+
+connectmodule usb_e2l (a, d);
+    input  a;
+    output d;
+    electrical a;
+    logic      d;
+
+    parameter real vthi = 1.0     from (0:inf);    // V, rising threshold
+    parameter real vtlo = 0.8     from (0:vthi);   // V, falling threshold
+    parameter real tx   = 0.0     from [0:inf);    // ns in between -> x (0: off)
+    parameter real rin  = 1e12    from (0:inf);    // Ohm, input load
+
+    reg dq;
+    assign d = dq;
+
+    initial dq = 1'bx;
+    always @(above(V(a) - vthi)) dq = 1'b1;
+    always @(above(vtlo - V(a))) dq = 1'b0;
+    always @(above(V(a) - vtlo) or above(vthi - V(a)))
+        if (tx > 0.0) begin
+            #(tx);
+            if (V(a) > vtlo && V(a) < vthi) dq = 1'bx;
+        end
+
+    analog begin
+        I(a) <+ V(a) / rin;
+    end
+endmodule
+
+connectmodule usb_bidir (d, a);
+    inout d;
+    inout a;
+    logic      d;
+    electrical a;
+
+    parameter real vsup = 1.8, vthi = 1.0, vtlo = 0.8;
+    parameter real tr = 50e-12, tf = 50e-12, rout = 50.0, rz = 1e9;
+
+    reg  dq;
+    real vd, rd;
+    assign d = dq;
+
+    // drive the analog side only while the digital side drives (not z)
+    initial begin vd = 0.0; rd = rz; dq = 1'bz; end
+    always @(d) begin
+        if (d === 1'b1)      begin vd = vsup; rd = rout; end
+        else if (d === 1'b0) begin vd = 0.0;  rd = rout; end
+        else                 begin vd = 0.0;  rd = rz;   end
+    end
+    always @(above(V(a) - vthi)) if (rd == rz) dq = 1'b1;
+    always @(above(vtlo - V(a))) if (rd == rz) dq = 1'b0;
+
+    analog begin
+        I(a) <+ (V(a) - transition(vd, 0.0, tr, tf)) / transition(rd, 0.0, tr, tf);
+    end
+endmodule
+
+connectrules usb_cr;
+    connect usb_l2e   #(.vsup(1.8), .tr(50e-12), .tf(50e-12), .rout(50.0));
+    connect usb_e2l   #(.vthi(1.0), .vtlo(0.8), .tx(0.0));
+    connect usb_bidir #(.vsup(1.8), .vthi(1.0), .vtlo(0.8));
+endconnectrules

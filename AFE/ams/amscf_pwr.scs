@@ -1,0 +1,12 @@
+// amscf_pwr.scs - analog control file of tb_ams_pwr (xrun -analogcontrol)
+//
+// The digital sequence ends the run with $finish (about 450 us); the tran stop
+// time is only an upper bound.  Saved: supplies, LDO status, PLL control
+// voltage.
+simulator lang=spectre
+
+opts options temp=27 reltol=1e-4 vabstol=1e-6 iabstol=1e-12
+tran tran stop=1.5m errpreset=moderate annotate=status
+
+save tb_ams_pwr.vdd33 tb_ams_pwr.vdd18 tb_ams_pwr.vdd18a tb_ams_pwr.vctl
+save tb_ams_pwr.pg18 tb_ams_pwr.porn_a

@@ -1,0 +1,15 @@
+// amscf_link.scs - analog control file of tb_ams_link (xrun -analogcontrol)
+//
+// The digital sequence ends the run with $finish (about 85 us); the tran stop
+// time is only an upper bound.  The models' edges are 50-625 ps, so the
+// default step control follows them; maxstep keeps the 480 Mbit/s data edges
+// resolved between packets.  Saved: the line, the CDR filter nodes, the
+// receiver outputs.
+simulator lang=spectre
+
+opts options temp=27 reltol=1e-4 vabstol=1e-6 iabstol=1e-12
+tran tran stop=500u errpreset=moderate maxstep=100p write="spectre.ic" annotate=status
+
+save tb_ams_link.dp tb_ams_link.dm
+save tb_ams_link.d_rx_p tb_ams_link.h_rx_p
+save tb_ams_link.d_cdr_ch tb_ams_link.h_cdr_ch
