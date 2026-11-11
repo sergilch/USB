@@ -97,8 +97,7 @@ endmodule
 //   been active for t_sq_on and rises once the line has been inactive for
 //   t_sq_off in total (t_bridge + the rest).  Both are inertial: activity
 //   shorter than t_sq_on - t_bridge and gaps shorter than t_sq_off are
-//   ignored.  (afe_squelch_bm needs no bridge: its line model has
-//   instantaneous edges.)
+//   ignored.  Same behaviour as afe_squelch_bm.v (T_SQ_BRIDGE).
 //   DISC_A = 1 once |vd| > v_disc (USB 2.0: 525-625 mV) for t_disc; falls at
 //   once.  The host samples it during the HS EOP.
 //   Off (RX_EN = 0 or RX_VDD below vdd_min): SQUELCH_A = 1, DISC_A = 0

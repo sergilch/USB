@@ -16,7 +16,11 @@
 //   [3] Squelch: falls T_SQ_ON after the line becomes active (400 mV), not on
 //       a 100 mV signal, stays low through 0 V crossings shorter than
 //       T_SQ_OFF, rises T_SQ_OFF after the line goes idle; activity shorter
-//       than T_SQ_ON is ignored; en = 0 values.
+//       than T_SQ_ON - T_SQ_BRIDGE (3 ns) is ignored; en = 0 values.
+//       Alternating HS data with sloped edges (625 ps, |vd| below V_SQ for
+//       0.2 ns per bit): released T_SQ_ON after the first edge passes V_SQ,
+//       stays released, asserts T_SQ_OFF after the data stops (regression:
+//       without the envelope bridge the squelch never released).
 //   [4] Disconnect: 800 mV (no far termination) -> disc after T_DISC;
 //       400 mV and 500 mV -> no disc; 650 mV -> disc.
 //-----------------------------------------------------------------------------
@@ -40,6 +44,15 @@ module tb_afe_hs_rx;
         end
     endtask
 
+    task ramp_vd(input real v0, input real v1);   // linear edge, 625 ps, 25 steps
+        integer k;
+        begin
+            for (k = 1; k <= 25; k = k + 1) begin
+                #0.025; set_vd(v0 + (v1 - v0) * k / 25.0);
+            end
+        end
+    endtask
+
     task chk(input [8*40-1:0] what, input got, input exp);
         begin
             if (got !== exp) begin
@@ -49,9 +62,11 @@ module tb_afe_hs_rx;
         end
     endtask
 
-    integer toggles, i;
+    integer toggles, i, n_rise;
     reg     last;
-    real    t0, t_sq;
+    real    t0, t_sq, t_fall;
+    always @(negedge squelch) t_fall = $realtime;
+    always @(posedge squelch) n_rise = n_rise + 1;
 
     initial begin
         $dumpfile("tb_afe_hs_rx.vcd");
@@ -104,8 +119,32 @@ module tb_afe_hs_rx;
         wait (squelch == 1'b1); t_sq = $realtime - t0;
         $display("  squelch assert after %0.2f ns idle (T_SQ_OFF 12.0)", t_sq);
         if ((t_sq < 11.9) || (t_sq > 12.1)) begin errors = errors + 1; $display("ERROR: squelch assert time"); end
-        set_vd(0.4); #3; set_vd(0.0); #20;
-        chk("3 ns burst ignored", squelch, 1'b1);
+        set_vd(0.4); #2; set_vd(0.0); #20;
+        chk("2 ns burst ignored", squelch, 1'b1);
+
+        // alternating HS data with sloped edges: release T_SQ_ON after the
+        // first edge passes V_SQ, no re-assertion while the data runs
+        t0 = $realtime + 0.625 * 0.125 / 0.4;           // ramp 0 -> 400 mV passes V_SQ
+        t_fall = -1.0; n_rise = 0;
+        ramp_vd(0.0, 0.4); #1.458;
+        for (i = 0; i < 30; i = i + 1) begin
+            ramp_vd((i % 2) ? -0.4 : 0.4, (i % 2) ? 0.4 : -0.4);
+            #1.458;
+        end
+        if (t_fall < 0.0) begin
+            errors = errors + 1; $display("ERROR: squelch never released on sloped HS data");
+        end else begin
+            t_sq = t_fall - t0;
+            $display("  sloped edges: squelch release after %0.2f ns (T_SQ_ON 4.0)", t_sq);
+            if ((t_sq < 3.9) || (t_sq > 4.1)) begin errors = errors + 1; $display("ERROR: squelch release time, sloped edges"); end
+        end
+        if (n_rise != 0) begin errors = errors + 1; $display("ERROR: squelch re-asserted %0d times during sloped HS data", n_rise); end
+        t0 = $realtime + 0.625 * (0.4 - 0.125) / 0.4;   // ramp 400 mV -> 0 passes V_SQ
+        ramp_vd(0.4, 0.0);
+        wait (squelch == 1'b1); t_sq = $realtime - t0;
+        $display("  sloped edges: squelch assert after %0.2f ns idle (T_SQ_OFF 12.0)", t_sq);
+        if ((t_sq < 11.9) || (t_sq > 12.1)) begin errors = errors + 1; $display("ERROR: squelch assert time, sloped edges"); end
+        #20;
         sq_en = 1'b0; set_vd(0.4); #20;
         chk("squelch, en = 0", squelch, 1'b1);
         sq_en = 1'b1; set_vd(0.0); #20;
