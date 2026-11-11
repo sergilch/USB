@@ -1,0 +1,128 @@
+//-----------------------------------------------------------------------------
+// tb_afe_ldo.va - stimulus and checker for afe_ldo (netlist: tb_afe_ldo.scs)
+//
+// VIN ramps 0 -> 3.3 V in 100 us with LDO_EN tied to VIN (the VDD18 instance
+// of the PHY); the load is a switched resistor here plus 1 uF in the netlist.
+//
+// Sequence
+//   0  power-up, 10 mA load      VOUT ~ 0 until VIN passes the 2.7 V UVLO;
+//                                1.62 V after 0.9 * t_ss; PWR_GOOD t_pg later;
+//                                POR_N t_por after PWR_GOOD; VOUT = 1.8 V
+//   1  40 mA load                load regulation
+//   2  180 mA overload            current limit (VOUT ~ i_lim * 10 Ohm), PWR_GOOD
+//                                and POR_N fall
+//   3  back to 10 mA              recovers, PWR_GOOD and POR_N again
+//   4  VIN 3.3 -> 3.0 V           line regulation: -0.3 V * 10^(-40/20) = -3 mV
+//   5  VIN 2.4 V (< 2.5 V UVLO)   off: PWR_GOOD and POR_N low, VOUT falls
+//   6  VIN 3.3 V                  restarts
+//   7  LDO_EN = 0                 VOUT discharged, PWR_GOOD low
+//-----------------------------------------------------------------------------
+`include "constants.vams"
+`include "disciplines.vams"
+`include "tb_afe_common.vams"
+
+module tb_afe_ldo_chk (VIN, LDO_EN, VOUT, PWR_GOOD, POR_N, GND);
+    output     VIN, LDO_EN;
+    input      PWR_GOOD, POR_N;
+    inout      VOUT, GND;
+    electrical VIN, LDO_EN, VOUT, PWR_GOOD, POR_N, GND;
+
+    parameter real vout_nom = 1.8;      // DUT defaults
+    parameter real t_ss     = 50e-6;
+    parameter real t_pg     = 10e-6;
+    parameter real t_por    = 100e-6;
+    parameter real r_load   = 180.0;    // 10 mA
+
+    real    t_step, dt, vin, t_vr, g_load, v_at_uv, t_uv, t_th, t_pgr, t_porr, v0;
+    integer errors, reported, step, tie;
+
+    analog begin
+        @(initial_step) begin
+            errors = 0; reported = 0; step = 0; t_step = 1e-6;
+            vin = 0.0; t_vr = 100e-6; tie = 1; g_load = 1.0 / r_load;
+            v_at_uv = 1.0; t_uv = -1.0; t_th = -1.0; t_pgr = -1.0; t_porr = -1.0; v0 = 0.0;
+        end
+
+        // ---- stimulus and load ----
+        V(VIN, GND)    <+ transition(vin, 0, t_vr);
+        V(LDO_EN, GND) <+ transition(tie, 0, 1e-9) * V(VIN, GND);
+        I(VOUT, GND)   <+ V(VOUT, GND) * transition(g_load, 0, 100e-9);
+
+        // ---- start-up captures (first occurrence) ----
+        @(cross(V(VIN, GND) - 2.7, +1))       if (t_uv < 0.0)   begin t_uv = $abstime; v_at_uv = V(VOUT, GND); end
+        @(cross(V(VOUT, GND) - 1.62, +1))     if (t_th < 0.0)   t_th = $abstime;
+        @(cross(V(PWR_GOOD, GND) - 0.9, +1))  if (t_pgr < 0.0)  t_pgr = $abstime;
+        @(cross(V(POR_N, GND) - 0.9, +1))     if (t_porr < 0.0) t_porr = $abstime;
+
+        // ---- sequence ----
+        @(timer(t_step)) begin
+            case (step)
+                0: begin
+                    vin = 3.3; t_vr = 100e-6;                       // power-up ramp
+                    dt = 299e-6;
+                end
+                1: begin
+                    `TB_RNG("VOUT when VIN reaches the 2.7 V UVLO [V]", v_at_uv, -0.01, 0.01)
+                    `TB_RNG("UVLO -> VOUT = 1.62 V (0.9 * t_ss) [s]", t_th - t_uv, 0.9 * t_ss - 1.5e-6, 0.9 * t_ss + 1.5e-6)
+                    `TB_RNG("VOUT = 1.62 V -> PWR_GOOD [s]", t_pgr - t_th, t_pg - 0.2e-6, t_pg + 0.5e-6)
+                    `TB_RNG("PWR_GOOD -> POR_N [s]", t_porr - t_pgr, t_por - 0.5e-6, t_por + 0.5e-6)
+                    `TB_RNG("VOUT at 10 mA [V]", V(VOUT, GND), vout_nom - 5e-3, vout_nom + 5e-3)
+                    g_load = 1.0 / 45.0;                            // 40 mA
+                    dt = 20e-6;
+                end
+                2: begin
+                    `TB_RNG("VOUT at 40 mA [V]", V(VOUT, GND), vout_nom - 5e-3, vout_nom + 5e-3)
+                    `TB_RNG("PWR_GOOD at 40 mA [V]", V(PWR_GOOD, GND), 1.7, 1.81)
+                    g_load = 1.0 / 10.0;                            // overload
+                    dt = 60e-6;                                     // 6 x (10 Ohm * 1 uF)
+                end
+                3: begin
+                    `TB_RNG("VOUT in current limit (10 Ohm) [V]", V(VOUT, GND), 0.4, 0.55)
+                    `TB_RNG("PWR_GOOD in overload [V]", V(PWR_GOOD, GND), -0.01, 0.1)
+                    `TB_RNG("POR_N in overload [V]", V(POR_N, GND), -0.01, 0.1)
+                    g_load = 1.0 / r_load;
+                    dt = 200e-6;
+                end
+                4: begin
+                    `TB_RNG("VOUT after the overload [V]", V(VOUT, GND), vout_nom - 5e-3, vout_nom + 5e-3)
+                    `TB_RNG("PWR_GOOD after the overload [V]", V(PWR_GOOD, GND), 1.7, 1.81)
+                    `TB_RNG("POR_N after the overload [V]", V(POR_N, GND), 1.7, 1.81)
+                    v0 = V(VOUT, GND);
+                    vin = 3.0; t_vr = 1e-6;                         // line step
+                    dt = 20e-6;
+                end
+                5: begin
+                    `TB_RNG("VOUT change for VIN 3.3 -> 3.0 V [V]", V(VOUT, GND) - v0, -3.5e-3, -2.5e-3)
+                    vin = 2.4;                                      // below the UVLO
+                    dt = 100e-6;
+                end
+                6: begin
+                    `TB_RNG("VIN = 2.4 V: PWR_GOOD [V]", V(PWR_GOOD, GND), -0.01, 0.1)
+                    `TB_RNG("VIN = 2.4 V: POR_N [V]", V(POR_N, GND), -0.01, 0.1)
+                    `TB_RNG("VIN = 2.4 V: VOUT falling [V]", V(VOUT, GND), -0.01, 1.2)
+                    vin = 3.3;
+                    dt = 300e-6;
+                end
+                7: begin
+                    `TB_RNG("restart: VOUT [V]", V(VOUT, GND), vout_nom - 5e-3, vout_nom + 5e-3)
+                    `TB_RNG("restart: PWR_GOOD [V]", V(PWR_GOOD, GND), 1.7, 1.81)
+                    `TB_RNG("restart: POR_N [V]", V(POR_N, GND), 1.7, 1.81)
+                    tie = 0;                                        // LDO_EN = 0
+                    dt = 1e-3;
+                end
+                8: begin
+                    `TB_RNG("LDO_EN = 0: VOUT [V]", V(VOUT, GND), -0.01, 0.05)
+                    `TB_RNG("LDO_EN = 0: PWR_GOOD [V]", V(PWR_GOOD, GND), -0.01, 0.05)
+                    `TB_FINISH
+                    $finish;
+                end
+            endcase
+            step = step + 1;
+            t_step = $abstime + dt;
+        end
+
+        @(final_step) begin
+            `TB_TIMEOUT
+        end
+    end
+endmodule

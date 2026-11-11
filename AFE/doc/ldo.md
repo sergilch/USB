@@ -69,3 +69,19 @@ Two instances, one per 1.8 V domain (spec 1):
 ## Not modelled
 
 The real loop dynamics and their stability with the output capacitor and its ESR, load-transient undershoot, frequency-dependent PSRR, noise, a bandgap (the reference is ideal), thermal shutdown, and the reverse current when VIN falls below VOUT (only the small `i_sink` flows).
+
+## Testbench
+
+`veriloga/tb/tb_afe_ldo.scs` with the checker `tb_afe_ldo_chk` (`tb_afe_ldo.va`); run it with `veriloga/tb/run_va_tests.sh ldo`. VIN ramps 0 → 3.3 V in 100 µs with `LDO_EN` tied to VIN. The output has 1 µF and a load the checker switches.
+
+| Step | Checks |
+|---|---|
+| power-up, 10 mA | VOUT ≈ 0 at the 2.7 V UVLO; 1.62 V after 45 µs ± 1.5 µs; `PWR_GOOD` 10 µs later; `POR_N` 100 µs after `PWR_GOOD`; VOUT 1.8 V ± 5 mV |
+| 40 mA | VOUT 1.8 V ± 5 mV |
+| 10 Ω overload | VOUT 0.40–0.55 V (current limit), `PWR_GOOD` and `POR_N` low |
+| back to 10 mA | recovered, `PWR_GOOD` and `POR_N` high |
+| VIN 3.3 → 3.0 V | VOUT −3 mV ± 0.5 mV (PSRR 40 dB) |
+| VIN 2.4 V, then 3.3 V | off (`PWR_GOOD`, `POR_N` low), then restart |
+| `LDO_EN` = 0 | VOUT discharged below 50 mV |
+
+Not simulated yet.

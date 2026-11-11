@@ -21,7 +21,8 @@ FS/LS receivers (`RXRCV_A`, `RXDP_A`, `RXDM_A`) are in `afe_fsls_xcvr` ([transce
 
 ## `afe_squelch`: squelch and disconnect
 
-- **Squelch:** the line counts as active while |`vd`| > `v_sq` (125 mV, between the USB limits: squelch below 100 mV, active above 150 mV). `SQUELCH_A` falls once the line has been active for `t_sq_on` (4 ns) and rises once it has been inactive for `t_sq_off` (12 ns). Both filters are inertial: shorter activity or gaps are ignored. The off delay works as an envelope hold, because |`vd`| passes zero at every HS transition.
+- **Squelch:** the line counts as active while |`vd`| > `v_sq` (125 mV, between the USB limits: squelch below 100 mV, active above 150 mV). |`vd`| passes zero at every HS transition: with 625 ps edges it stays below 125 mV for about 0.2 ns per bit. So the comparator feeds an envelope that bridges dips shorter than `t_bridge` (1 ns, less than one bit time). `SQUELCH_A` falls once the envelope has been active for `t_sq_on` (4 ns) and rises once the line has been inactive for `t_sq_off` (12 ns) in total. Both filters are inertial: activity shorter than `t_sq_on` − `t_bridge` (3 ns) and gaps shorter than `t_sq_off` are ignored.
+- *Why the bridge:* without it, every zero crossing restarted the 4 ns release filter, and the squelch never released on alternating HS data. The first version of this model had that bug; it was found while writing `tb_afe_receiver`. `afe_squelch_bm` doesn't need the bridge, because its line model `afe_line_bm` has instantaneous edges.
 - **Disconnect:** `DISC_A` = 1 once |`vd`| > `v_disc` (575 mV, USB: 525–625 mV) for `t_disc` (4 ns). It falls at once. A host samples it during the HS EOP: 400 mV normally, 800 mV when the device has gone.
 - **Off** (`RX_EN` = 0 or `RX_VDD` low): `SQUELCH_A` = 1, `DISC_A` = 0 (isolated values, spec 3.2 / 3.5).
 
@@ -39,7 +40,7 @@ FS/LS receivers (`RXRCV_A`, `RXDP_A`, `RXDM_A`) are in `afe_fsls_xcvr` ([transce
 | `RX_VDD`, `RX_GND` | supply | — | 3.3 V |
 | `RX_VDDO` | supply | — | Output stages (1.8 V proposed) |
 
-Wrapper parameters: `v_hys`, `v_off`, `v_noise`, `t_dly`, `v_sq`, `t_sq_on`, `t_sq_off`, `v_disc`, `t_disc`. For the others, instantiate `afe_hs_rx` / `afe_squelch` directly.
+Wrapper parameters: `v_hys`, `v_off`, `v_noise`, `t_dly`, `v_sq`, `t_sq_on`, `t_sq_off`, `t_bridge`, `v_disc`, `t_disc`. For the others, instantiate `afe_hs_rx` / `afe_squelch` directly.
 
 ## Parameters
 
@@ -50,6 +51,7 @@ Wrapper parameters: `v_hys`, `v_off`, `v_noise`, `t_dly`, `v_sq`, `t_sq_on`, `t_
 | | `t_dly`, `t_rf`, `c_in` | 0.3 ns, 50 ps, 0 | Delay, output edges, input capacitance |
 | | `vdd_min`, `vref_min`, `r_vref` | 2.97 V, 0 (off), 1 GΩ | Supply and bias checks |
 | `afe_squelch` | `v_sq`, `t_sq_on`, `t_sq_off` | 125 mV, 4 ns, 12 ns | Squelch threshold and filter times |
+| | `t_bridge` | 1 ns | Envelope: dips below `v_sq` shorter than this are ignored |
 | | `v_disc`, `t_disc` | 575 mV, 4 ns | Disconnect threshold and delay |
 | | `t_dly`, `t_rf`, `vdd_min` | 0.1 ns, 50 ps, 2.97 V | Output stage, supply check |
 | both | `vth_logic` | 0.9 V | `RX_EN` threshold |
@@ -67,3 +69,19 @@ Wrapper parameters: `v_hys`, `v_off`, `v_noise`, `t_dly`, `v_sq`, `t_sq_on`, `t_
 ## Not modelled
 
 Frequency response and ISI of the receiver (it switches on the ideal differential voltage), common-mode range and rejection, sensitivity limits beyond `v_hys`, the squelch's dependence on data pattern and edge rate, and the threshold trims (`RX_HYST`, `RX_VTH`, `SQ_VTH`, `DISC_VTH`, spec 6). The parameters stand in for the trims.
+
+## Testbench
+
+`veriloga/tb/tb_afe_receiver.scs` with the checker `tb_afe_receiver_chk` (`tb_afe_receiver.va`); run it with `veriloga/tb/run_va_tests.sh receiver`. The line is an ideal differential source at 200 mV common mode: a slow or static ramp, plus an alternating J/K pattern at 480 Mbit/s with 625 ps edges.
+
+| Step | Checks |
+|---|---|
+| ramp −50 → +50 → −50 mV in 1 µs | `RX_OUT_P` switches at +10 / −10 mV (± 0.5 mV); squelched |
+| 400 mV pattern | `SQUELCH_A` falls 4.1–4.7 ns after the start; `RX_OUT_P` 0.30–0.36 ns after DP − DM = 0; `DISC_A` = 0 |
+| pattern stops | `SQUELCH_A` rises 12 ns later |
+| 90 mV / 160 mV pattern | not released / released |
+| 2 ns burst | ignored |
+| static 500 / 650 mV | `DISC_A` 0 / 1, delay 4.1–4.3 ns |
+| `RX_EN` = 0, `RX_VDD` = 2.5 V | isolated outputs |
+
+Not simulated yet.

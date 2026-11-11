@@ -1,0 +1,211 @@
+//-----------------------------------------------------------------------------
+// tb_afe_transceiver.va - stimulus and checker for afe_transceiver
+//                         (netlist: tb_afe_transceiver.scs)
+//
+// The DUT is the device-side transceiver on DP / DM.  The far end (host) is
+// an afe_term instance in the netlist: 45 Ohm HS terminations (FE_TERM_EN)
+// and 15 kOhm pull-downs (FE_PD_EN), both controlled from here.
+//
+// Sequence (one step per line; levels with the stated loads)
+//    0  everything off                          DP = DM = 0, receivers 0
+//    1  device pull-up, host pull-downs         FS attach: DP = 3.0 V, J
+//    2  HS: both terminations, TX_EN = 1, J      no current before t_en (20 ns)
+//    3                                          J: DP - DM = +400 mV
+//    4  K                                        -400 mV, 10-90 % fall 0.5 ns,
+//                                               delay TX_IN -> line 0.81 ns
+//    5  TX_IN_P = TX_IN_N = 1                    current splits: DP = DM = 200 mV
+//    6  J, device termination off (chirp)       DP = 17.78 mA * 45 Ohm = 800 mV
+//    7  TX_EN = 0                                no current
+//    8  FS driver J, pull-up, host pull-downs   DP > 3.2 V, RXDP / RXRCV = 1
+//    9  FS K                                     DM rise 4-20 ns, RXRCV delay 2 ns
+//   10  SE0                                     DP, DM < 0.1 V, RXDP = RXDM = 0
+//   11  LS J (DM high), then LS K               DP rise 75-300 ns (LS)
+//   12  device pull-downs + pull-up, driver off DP = 3.0 V
+//   13  FS_RX_EN_A = 0, then VDD33 = 2.5 V      isolated receiver values
+//-----------------------------------------------------------------------------
+`include "constants.vams"
+`include "disciplines.vams"
+`include "tb_afe_common.vams"
+
+module tb_afe_transceiver_chk (TX_IN_P, TX_IN_N, TX_EN,
+                               FS_OE_A, FS_DAT_A, FS_SE0_A, FS_LS_A, FS_RX_EN_A,
+                               RXRCV_A, RXDP_A, RXDM_A,
+                               DP_PULLUP_EN_A, HS_TERM_EN_A, PD_EN_A0, PD_EN_A1,
+                               FE_TERM_EN, FE_PD_EN, DP, DM, VDD33, VDD18, GND);
+    output     TX_IN_P, TX_IN_N, TX_EN, FS_OE_A, FS_DAT_A, FS_SE0_A, FS_LS_A, FS_RX_EN_A,
+               DP_PULLUP_EN_A, HS_TERM_EN_A, PD_EN_A0, PD_EN_A1, FE_TERM_EN, FE_PD_EN;
+    input      RXRCV_A, RXDP_A, RXDM_A, DP, DM;
+    inout      VDD33, VDD18, GND;
+    electrical TX_IN_P, TX_IN_N, TX_EN, FS_OE_A, FS_DAT_A, FS_SE0_A, FS_LS_A, FS_RX_EN_A,
+               RXRCV_A, RXDP_A, RXDM_A, DP_PULLUP_EN_A, HS_TERM_EN_A, PD_EN_A0, PD_EN_A1,
+               FE_TERM_EN, FE_PD_EN, DP, DM, VDD33, VDD18, GND;
+
+    parameter real t_en    = 20e-9;      // DUT TX_EN settling (afe_hs_tx default)
+    parameter real hs_amp  = 0.400;      // 17.78 mA * 22.5 Ohm
+    parameter real hs_tol  = 0.005;
+    parameter real t_hsdly = 0.8125e-9;  // t_dly + t_rf_hs / 2, from the TX_IN midpoint
+    parameter real t_hsf   = 0.5e-9;     // 0.8 * t_rf_hs
+
+    real    t_step, dt, v33, t_k, t_a, t_b, t_c, t_d;
+    integer errors, reported, step, arm;
+    integer txp, txn, txen, oe, dat, se0, ls, rxen, pu, hst, pd0, pd1, fet, fepd;
+
+    analog begin
+        @(initial_step) begin
+            errors = 0; reported = 0; step = 0; t_step = 0.0; arm = 0;
+            txp = 1; txn = 0; txen = 0; oe = 0; dat = 1; se0 = 0; ls = 0; rxen = 1;
+            pu = 0; hst = 0; pd0 = 0; pd1 = 0; fet = 0; fepd = 1; v33 = 3.3;
+            t_a = 0; t_b = 0; t_c = 0; t_d = 0; t_k = 0;
+        end
+
+        // ---- stimulus ----
+        V(VDD33, GND)          <+ transition(v33, 0, 1e-9);
+        V(VDD18, GND)          <+ 1.8;
+        V(TX_IN_P, GND)        <+ 1.8 * transition(txp,  0, 50e-12);
+        V(TX_IN_N, GND)        <+ 1.8 * transition(txn,  0, 50e-12);
+        V(TX_EN, GND)          <+ 1.8 * transition(txen, 0, 50e-12);
+        V(FS_OE_A, GND)        <+ 1.8 * transition(oe,   0, 50e-12);
+        V(FS_DAT_A, GND)       <+ 1.8 * transition(dat,  0, 50e-12);
+        V(FS_SE0_A, GND)       <+ 1.8 * transition(se0,  0, 50e-12);
+        V(FS_LS_A, GND)        <+ 1.8 * transition(ls,   0, 50e-12);
+        V(FS_RX_EN_A, GND)     <+ 1.8 * transition(rxen, 0, 50e-12);
+        V(DP_PULLUP_EN_A, GND) <+ 1.8 * transition(pu,   0, 50e-12);
+        V(HS_TERM_EN_A, GND)   <+ 1.8 * transition(hst,  0, 50e-12);
+        V(PD_EN_A0, GND)       <+ 1.8 * transition(pd0,  0, 50e-12);
+        V(PD_EN_A1, GND)       <+ 1.8 * transition(pd1,  0, 50e-12);
+        V(FE_TERM_EN, GND)     <+ 1.8 * transition(fet,  0, 50e-12);
+        V(FE_PD_EN, GND)       <+ 1.8 * transition(fepd, 0, 50e-12);
+
+        // ---- edge capture ----
+        @(cross(V(DP, DM) - 0.8 * hs_amp, -1)) if (arm == 1) t_a = $abstime;   // HS J -> K, 10 %
+        @(cross(V(DP, DM) + 0.8 * hs_amp, -1)) if (arm == 1) t_b = $abstime;   //            90 %
+        @(cross(V(DP, DM), -1))                if (arm == 1 || arm == 2) t_c = $abstime;
+        @(cross(V(DM, GND) - 0.33, +1))        if (arm == 2) t_a = $abstime;   // FS K: DM rises
+        @(cross(V(DM, GND) - 2.97, +1))        if (arm == 2) t_b = $abstime;
+        @(cross(V(RXRCV_A, GND) - 0.9, -1))    if (arm == 2) t_d = $abstime;
+        @(cross(V(DP, GND) - 0.33, +1))        if (arm == 3) t_a = $abstime;   // LS K: DP rises
+        @(cross(V(DP, GND) - 2.97, +1))        if (arm == 3) t_b = $abstime;
+
+        // ---- sequence ----
+        @(timer(t_step)) begin
+            case (step)
+                0: dt = 100e-9;
+                1: begin
+                    `TB_RNG("off: DP [V]", V(DP, GND), -0.01, 0.01)
+                    `TB_RNG("off: DM [V]", V(DM, GND), -0.01, 0.01)
+                    `TB_RNG("off: RXDP_A [V]", V(RXDP_A, GND), -0.01, 0.1)
+                    pu = 1;                                         // FS attach
+                    dt = 100e-9;
+                end
+                2: begin
+                    `TB_RNG("attach: DP (1.5k up / 15k down) [V]", V(DP, GND), 2.95, 3.05)
+                    `TB_RNG("attach: DM [V]", V(DM, GND), -0.01, 0.01)
+                    `TB_RNG("attach: RXDP_A [V]", V(RXDP_A, GND), 1.7, 1.81)
+                    `TB_RNG("attach: RXDM_A [V]", V(RXDM_A, GND), -0.01, 0.1)
+                    `TB_RNG("attach: RXRCV_A [V]", V(RXRCV_A, GND), 1.7, 1.81)
+                    pu = 0; fepd = 0; hst = 1; fet = 1;             // HS terminations
+                    txp = 1; txn = 0; txen = 1;                     // J
+                    dt = 0.5 * t_en;
+                end
+                3: begin
+                    `TB_RNG("HS: |DP - DM| before TX_EN settled [V]", abs(V(DP, DM)), 0.0, 0.005)
+                    dt = 0.5 * t_en + 10e-9;
+                end
+                4: begin
+                    `TB_RNG("HS J: DP - DM [V]", V(DP, DM), hs_amp - hs_tol, hs_amp + hs_tol)
+                    `TB_RNG("HS J: DM [V]", V(DM, GND), -0.005, 0.005)
+                    arm = 1; txp = 0; txn = 1; t_k = $abstime + 25e-12;   // K
+                    dt = 10e-9;
+                end
+                5: begin
+                    arm = 0;
+                    `TB_RNG("HS K: DP - DM [V]", V(DP, DM), -hs_amp - hs_tol, -hs_amp + hs_tol)
+                    `TB_RNG("HS J->K 10-90 % fall time [s]", t_b - t_a, t_hsf - 0.05e-9, t_hsf + 0.05e-9)
+                    `TB_RNG("HS TX_IN -> line delay (50 %) [s]", t_c - t_k, t_hsdly - 0.05e-9, t_hsdly + 0.05e-9)
+                    txp = 1;                                        // P = N = 1
+                    dt = 1.5e-9;
+                end
+                6: begin
+                    `TB_RNG("HS P = N: DP - DM [V]", V(DP, DM), -0.01, 0.01)
+                    `TB_RNG("HS P = N: DP [V]", V(DP, GND), 0.5 * hs_amp - 0.01, 0.5 * hs_amp + 0.01)
+                    txn = 0; hst = 0;                               // J into one 45 Ohm (chirp)
+                    dt = 5e-9;
+                end
+                7: begin
+                    `TB_RNG("chirp: DP into 45 Ohm [V]", V(DP, GND), 2.0 * hs_amp - 0.01, 2.0 * hs_amp + 0.01)
+                    txen = 0;
+                    dt = 5e-9;
+                end
+                8: begin
+                    `TB_RNG("TX_EN = 0: DP [V]", V(DP, GND), -0.005, 0.005)
+                    fet = 0; fepd = 1; pu = 1; oe = 1; dat = 1; ls = 0;   // FS J
+                    dt = 100e-9;
+                end
+                9: begin
+                    `TB_RNG("FS J: DP [V]", V(DP, GND), 3.2, 3.31)
+                    `TB_RNG("FS J: DM [V]", V(DM, GND), -0.01, 0.05)
+                    `TB_RNG("FS J: RXDP_A [V]", V(RXDP_A, GND), 1.7, 1.81)
+                    `TB_RNG("FS J: RXRCV_A [V]", V(RXRCV_A, GND), 1.7, 1.81)
+                    arm = 2; dat = 0;                               // FS K
+                    dt = 100e-9;
+                end
+                10: begin
+                    arm = 0;
+                    `TB_RNG("FS K: DM [V]", V(DM, GND), 3.2, 3.31)
+                    `TB_RNG("FS K: RXRCV_A [V]", V(RXRCV_A, GND), -0.01, 0.1)
+                    `TB_RNG("FS K: RXDM_A [V]", V(RXDM_A, GND), 1.7, 1.81)
+                    `TB_RNG("FS 10-90 % rise of DM (USB: 4-20 ns) [s]", t_b - t_a, 4e-9, 20e-9)
+                    `TB_RNG("RXRCV_A delay after DP = DM (t_rx + vdi/2 slope + edge) [s]", t_d - t_c, 2.0e-9, 2.5e-9)
+                    se0 = 1;
+                    dt = 100e-9;
+                end
+                11: begin
+                    `TB_RNG("SE0: DP (pull-up against 45 Ohm) [V]", V(DP, GND), -0.01, 0.15)
+                    `TB_RNG("SE0: DM [V]", V(DM, GND), -0.01, 0.05)
+                    `TB_RNG("SE0: RXDP_A [V]", V(RXDP_A, GND), -0.01, 0.1)
+                    `TB_RNG("SE0: RXDM_A [V]", V(RXDM_A, GND), -0.01, 0.1)
+                    se0 = 0; ls = 1; dat = 1; pu = 0;               // LS J = DM high
+                    dt = 1e-6;
+                end
+                12: begin
+                    `TB_RNG("LS J: DM [V]", V(DM, GND), 3.2, 3.31)
+                    `TB_RNG("LS J: DP [V]", V(DP, GND), -0.01, 0.05)
+                    arm = 3; dat = 0;                               // LS K = DP high
+                    dt = 1e-6;
+                end
+                13: begin
+                    arm = 0;
+                    `TB_RNG("LS K: DP [V]", V(DP, GND), 3.2, 3.31)
+                    `TB_RNG("LS 10-90 % rise of DP (USB: 75-300 ns) [s]", t_b - t_a, 75e-9, 300e-9)
+                    oe = 0; ls = 0; dat = 1; fepd = 0; pu = 1; pd0 = 1; pd1 = 1;
+                    dt = 100e-9;
+                end
+                14: begin
+                    `TB_RNG("device pulls: DP (1.5k up / 15k down) [V]", V(DP, GND), 2.95, 3.05)
+                    `TB_RNG("device pulls: DM [V]", V(DM, GND), -0.01, 0.01)
+                    rxen = 0;
+                    dt = 20e-9;
+                end
+                15: begin
+                    `TB_RNG("FS_RX_EN_A = 0: RXDP_A [V]", V(RXDP_A, GND), -0.01, 0.1)
+                    `TB_RNG("FS_RX_EN_A = 0: RXDM_A [V]", V(RXDM_A, GND), -0.01, 0.1)
+                    `TB_RNG("FS_RX_EN_A = 0: RXRCV_A [V]", V(RXRCV_A, GND), 1.7, 1.81)
+                    rxen = 1; v33 = 2.5;
+                    dt = 20e-9;
+                end
+                16: begin
+                    `TB_RNG("VDD33 = 2.5 V: RXDP_A [V]", V(RXDP_A, GND), -0.01, 0.1)
+                    `TB_RNG("VDD33 = 2.5 V: RXRCV_A [V]", V(RXRCV_A, GND), 1.7, 1.81)
+                    `TB_FINISH
+                    $finish;
+                end
+            endcase
+            step = step + 1;
+            t_step = $abstime + dt;
+        end
+
+        @(final_step) begin
+            `TB_TIMEOUT
+        end
+    end
+endmodule

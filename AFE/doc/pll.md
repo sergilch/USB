@@ -86,3 +86,16 @@ These values exist so that the model closes its loop. The transistor-level value
 ## Not modelled
 
 Phase noise beyond white period jitter, reference spurs, charge-pump mismatch and leakage, the PFD reset pulse, VCO gain variation over the range, supply sensitivity, the divider's own delay, and a lock-detect output (lock is judged digitally).
+
+## Testbench
+
+`veriloga/tb/tb_afe_pll.scs` with the checker `tb_afe_pll_chk` (`tb_afe_pll.va`); run it with `veriloga/tb/run_va_tests.sh pll`. It measures the `CLK_BIT_A` frequency over blocks of 1024 periods, and the window count of `usb_pll_lock_det` (`CLK_BIT_A` edges per 256 `REF_DIG` periods).
+
+| Phase | Checks |
+|---|---|
+| 24 MHz, REFSEL 01, `PLL_EN` = 1 for 80 µs | settled to ±0.08 % within 45 µs; windows 5120 ± 1 after settling; 480 MHz ± 200 ppm; control voltage 0.85–0.95 V |
+| `PLL_EN` = 0 | `CLK_BIT_A` low and without edges; 48 ± 1 `REF_DIG` edges in 2 µs; control voltage < 50 mV |
+| 19.2 MHz, REFSEL 00 | settled within 30 µs; windows 6400 ± 1; 480 MHz |
+| 26 MHz, REFSEL 10 | no window inside 4726 ± 5; `CLK_BIT_A` at 500 MHz (VCO limit) |
+
+Checker parameters: `ppm_ref` (reference offset), `t_set_24`, `t_set_19`, `t_run`. Not simulated yet.

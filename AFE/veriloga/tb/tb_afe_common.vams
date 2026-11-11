@@ -1,0 +1,45 @@
+//-----------------------------------------------------------------------------
+// tb_afe_common.vams - shared macros of the Verilog-A testbenches
+//
+// Every checker module declares `integer errors, reported, step;` and uses:
+//   `TB_CHK(cond, "message")              error if cond is false
+//   `TB_RNG("name", value, lo, hi)        error if value is outside [lo, hi],
+//                                         otherwise prints the value
+//   `TB_FINISH                            prints TEST PASSED / TEST FAILED: n
+//                                         error(s) once
+//   `TB_TIMEOUT                           in @(final_step): TEST FAILED: timeout
+//                                         if the sequence never finished (the
+//                                         tran stop time is the watchdog)
+// Messages must not contain commas (macro arguments).  Invoke the macros
+// without a trailing semicolon.
+//-----------------------------------------------------------------------------
+`ifndef TB_AFE_COMMON_VAMS
+`define TB_AFE_COMMON_VAMS
+
+`define TB_CHK(cond, msg) \
+    if (!(cond)) begin \
+        errors = errors + 1; \
+        $strobe("ERROR at %e s: %s", $abstime, msg); \
+    end
+
+`define TB_RNG(name, v, lo, hi) \
+    if ((1.0 * (v)) < (lo) || (1.0 * (v)) > (hi)) begin \
+        errors = errors + 1; \
+        $strobe("ERROR at %e s: %s = %e (expected %e .. %e)", $abstime, name, 1.0 * (v), 1.0 * (lo), 1.0 * (hi)); \
+    end else \
+        $strobe("  ok  %s = %e", name, 1.0 * (v));
+
+`define TB_FINISH \
+    if (!reported) begin \
+        reported = 1; \
+        if (errors == 0) $strobe("TEST PASSED"); \
+        else             $strobe("TEST FAILED: %d error(s)", errors); \
+    end
+
+`define TB_TIMEOUT \
+    if (!reported) begin \
+        reported = 1; \
+        $strobe("TEST FAILED: timeout (stopped in step %d, %d error(s) so far)", step, errors); \
+    end
+
+`endif

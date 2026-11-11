@@ -1,0 +1,17 @@
+// tb_afe_ldo.scs - testbench of afe_ldo (AFE/veriloga/afe_ldo.va)
+// Run from this directory:  spectre tb_afe_ldo.scs   (or ./run_va_tests.sh ldo)
+// Checker and sequence: tb_afe_ldo.va.  1 uF output capacitor; the load is
+// switched in the checker.  The stop time is the watchdog (sequence needs
+// about 1.95 ms).
+simulator lang=spectre
+global 0
+
+ahdl_include "../afe_ldo.va"
+ahdl_include "tb_afe_ldo.va"
+
+DUT  (vin vout 0 ldo_en pwr_good por_n) afe_ldo
+COUT (vout 0) capacitor c=1u
+CHK  (vin ldo_en vout pwr_good por_n 0) tb_afe_ldo_chk
+
+opts options save=allpub
+tr   tran stop=2.5m errpreset=moderate

@@ -1,0 +1,15 @@
+// tb_afe_pll.scs - testbench of afe_pll (AFE/veriloga/afe_pll.va)
+// Run from this directory:  spectre tb_afe_pll.scs   (or ./run_va_tests.sh pll)
+// Checker and sequence: tb_afe_pll.va.  Result line in the log: TEST PASSED /
+// TEST FAILED.  The stop time is the watchdog (sequence needs about 225 us).
+simulator lang=spectre
+global 0
+
+ahdl_include "../afe_pll.va"
+ahdl_include "tb_afe_pll.va"
+
+DUT (fref pll_en refsel1 refsel0 clk_bit ref_dig vctl vdd18a 0) afe_pll
+CHK (fref pll_en refsel1 refsel0 clk_bit ref_dig vctl vdd18a 0) tb_afe_pll_chk
+
+opts options save=allpub
+tr   tran stop=260u errpreset=moderate

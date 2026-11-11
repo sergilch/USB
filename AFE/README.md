@@ -1,6 +1,6 @@
 # AFE — Idealized Verilog-A Models
 
-*Created 2026-11-11. Status: first version. The models have **not been simulated yet**: no Verilog-A simulator is installed on the development machine. They have only been reviewed and lint-checked (structure, declarations). The first run in Spectre / Spectre AMS (or another simulator with analog events) is still open. See [Verification status](#verification-status).*
+*Created 2026-11-11. Status: first version, with a self-checking Verilog-A testbench per block (`veriloga/tb/`). Neither the models nor the testbenches **have been simulated yet**: no Verilog-A simulator is installed on the development machine. They have only been reviewed and lint-checked (structure, declarations, netlist port counts). The first run in Spectre / Spectre AMS (or another simulator with analog events) is still open. See [Verification status](#verification-status).*
 
 This directory holds the analog side of the USB 2.0 PHY:
 
@@ -8,6 +8,7 @@ This directory holds the analog side of the USB 2.0 PHY:
 |---|---|
 | `view analog_block USB 2.0 High.md` | The analog team's description of the existing transistor-level blocks: HS RX, HS TX, and the PLL-assisted CDR |
 | `veriloga/*.va` | Idealized Verilog-A models of the AFE blocks, aligned with the digital RTL |
+| `veriloga/tb/` | One testbench per block: a Verilog-A stimulus / checker module (`tb_afe_*.va`), a Spectre netlist (`tb_afe_*.scs`), shared macros (`tb_afe_common.vams`) and the runner `run_va_tests.sh` |
 | `doc/*.md` | One document per model: pins, behaviour, parameters, alignment with the digital side |
 
 The Verilog-A models are the analog-simulator counterpart of the event-driven Verilog models `afe_*_bm.v` in the repository root. Those models run in Icarus with the digital testbenches. The Verilog-A models are for the mixed-signal phase **A8** of `AFE_INTEGRATION_PLAN.md`: the digital netlist co-simulated with analog blocks in Spectre AMS. They can stand in for blocks that are not designed yet, and they serve as the reference that the transistor-level blocks are checked against.
@@ -93,13 +94,33 @@ XCVR  (hs_tx_p hs_tx_n hs_tx_en i5u vref_tx tx_cap_p tx_cap_n \
 
 Port order is the order in each module header. The far end of the link (host or device) is another `afe_transceiver` + `afe_receiver` pair on the same `dp` / `dm`, or a USB pattern generator. A cable model, if needed, is a transmission line between the two ends.
 
+## Testbenches
+
+Each block has a self-checking testbench in `veriloga/tb/`, in the same style as the Verilog testbenches of the repository:
+
+- `tb_afe_<block>_chk` (in `tb_afe_<block>.va`) is a Verilog-A module that drives the block's inputs and supplies, measures its outputs, and checks them against the spec values. It runs a fixed sequence of steps (`@(timer)`) and counts failed checks in `errors`. Each check prints `ok <name> = <value>` or `ERROR at <t>: <name> = <value> (expected <lo> .. <hi>)`.
+- At the end it prints **`TEST PASSED`** or **`TEST FAILED: <n> error(s)`** and stops the run (`$finish`). If the tran stop time is reached first, which acts as the watchdog, it prints **`TEST FAILED: timeout`**.
+- `tb_afe_<block>.scs` is the Spectre netlist. It `ahdl_include`s the model and the checker, connects them (plus passive loads or a second model instance where needed), saves all public nodes and runs `tran`.
+- `./run_va_tests.sh [name ...]` runs all testbenches, or those whose name contains an argument, in parallel with `$SPECTRE` (default `spectre`). It writes logs and raw data to `build/va/<testbench>/`, checks the result line rather than the exit code, and exits non-zero on any failure. Without a simulator it reports every testbench as `SKIP`.
+
+| Testbench | Checks | Sim. time |
+|---|---|---|
+| `tb_afe_pll` | Settling to ±0.08 % ≤ 45 µs at 24 MHz / ÷20 and ≤ 30 µs at 19.2 MHz / ÷25 (spec 4.3); the `usb_pll_lock_det` window count (`CLK_BIT_A` edges per 256 `REF_DIG` periods: 5120 / 6400) exact to ±1 after settling; 480 MHz; control voltage 0.9 V; `PLL_EN` = 0 stops the clock low, `REF_DIG` keeps running, the filter discharges; 26 MHz with ÷20 never gives a window inside 4726 ± 5 (VCO at its 500 MHz limit) | 225 µs |
+| `tb_afe_cdr` | Packet generator (SYNC 12 / 32 bits, PRBS7, EOP, a random start phase per packet). Lock time per packet, in bits from the first transition until the sampling instant stays ≥ 0.15 UI from every data edge: ≤ 6 bits (spec 4.2, `HS_ZMIN` 4 / `LOCK_DLY` 2), with mean and worst case reported; 1027-byte packets at ±1000 ppm without loss of lock or a bit slip; `HS_RXD` equals the previous sample; `HS_RXD` setup ≥ 0.4 ns / hold ≥ 0.1 ns; free-running clock 480 MHz ± 0.25 %; `CDR_EN` = 0 → `CLK_RX` low, `HS_RXD` = 1 | 85 µs |
+| `tb_afe_transceiver` | FS attach (DP = 3.0 V), HS J / K = ±400 mV into 2 × 45 Ω, no current before `t_en`, 10–90 % edge 0.5 ns, `TX_IN` → line delay, P = N split, chirp 800 mV into one 45 Ω, `TX_EN` = 0; FS J / K / SE0 levels and receivers, FS rise 4–20 ns, `RXRCV_A` delay, LS rise 75–300 ns; device pull-ups / pull-downs; isolated receiver values (`FS_RX_EN_A` = 0, VDD33 low). The far end is an `afe_term` | 2.6 µs |
+| `tb_afe_receiver` | Hysteresis thresholds ±10 mV, `RX_OUT_P` delay; squelch release 4 ns after a 400 mV alternating pattern starts, assertion 12 ns after it stops; no release at 90 mV, release at 160 mV, a 2 ns burst ignored; disconnect at 650 mV (static) after 4 ns, not at 500 mV; isolated outputs (`RX_EN` = 0, `RX_VDD` low) | 2.7 µs |
+| `tb_afe_ldo` | Start-up from a 100 µs VIN ramp: off below the 2.7 V UVLO, soft start, `PWR_GOOD` 10 µs after 1.62 V, `POR_N` 100 µs later; load regulation at 10 / 40 mA; current limit into 10 Ω with `PWR_GOOD` / `POR_N` falling, then recovery; line regulation −3 mV for −0.3 V; UVLO off at 2.4 V and restart; `LDO_EN` = 0 discharges VOUT | 1.95 ms |
+
+To vary a model parameter, override it on the `DUT` line of the netlist (for example `DUT (...) afe_cdr jit_rms=10p t_amb=30p`). Where a check depends on that parameter, override the matching parameter of `CHK` as well (`t_en`, `v_hys`, `t_on`, …).
+
 ## Verification status
 
 | Check | Status |
 |---|---|
 | Structural lint: `begin`/`end` and `module`/`endmodule` balanced, every assigned variable declared, brackets balanced | done (script, 2026-11-11) |
-| Compile and run in Spectre (or Spectre AMS with the digital netlist) | **open**: no simulator here |
-| Per-block checks to run first | PLL: lock from `PLL_EN` within 45 µs (spec 4.3), 480.000 MHz at 24 MHz / ÷20 and 19.2 MHz / ÷25. CDR: lock statistics against `tb_afe_cdr` (spec 4.2 table). Transceiver: 400 mV HS J/K into 2 × 45 Ω, 800 mV chirp, FS/LS edge rates. Receiver: squelch release 4 ns, hold 12 ns. LDO: soft start, PG / POR timing, dropout at 3.0 V |
+| Testbenches written (one per block, `veriloga/tb/`); netlist node counts checked against the module port lists | done (2026-11-11) |
+| Compile the models and testbenches, run `run_va_tests.sh` in Spectre | **open**: no simulator here. Expect a few syntax fixes on the first compile, and expect some check windows to need adjusting once real waveforms show up |
+| Spectre AMS with the digital netlist | open (phase A8) |
 | Correlation with `afe_*_bm.v` | open: same defaults by construction, not compared in simulation |
 
 ## Open points that change these models

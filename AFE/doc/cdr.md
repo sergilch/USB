@@ -66,3 +66,16 @@ CDR_DATA (RX_OUT_P) ─► Alexander PD ─UP/DN─► charge pump ─► filter
 ## Not modelled
 
 The PD's metastability beyond `t_amb`, charge-pump mismatch, VCO phase noise beyond white period jitter, the coarse loop's own ripple on `CDR_V_IN_2`, and a 1:4 demultiplexed output (spec 7.2, Q1 / Q12: if the analog team agrees, `HS_RXD` becomes 4 pins with a ÷4 clock).
+
+## Testbench
+
+`veriloga/tb/tb_afe_cdr.scs` with the checker `tb_afe_cdr_chk` (`tb_afe_cdr.va`); run it with `veriloga/tb/run_va_tests.sh cdr`. `CDR_V_IN_2` is held at 0.9 V, which is 480 MHz on the coarse curve; the PLL itself is covered by `tb_afe_pll`.
+
+- **Generator:** idle at 0 (SE0) → SYNC (12 bits, every 4th packet 32) → PRBS7 payload → 8-bit EOP → idle of 20–60 bits plus a random fraction of a bit. The fraction gives every packet a new start phase.
+- **Packets:** 40 short packets (64 bits) at 0 ppm, then 2 + 2 packets of 1027 bytes at +1000 / −1000 ppm.
+- **Margin** at every rising `CLK_RX` edge: the distance of the sampling instant from the nearest bit boundary of `CDR_DATA`. The lock time of a packet is the number of bits from the first transition up to the last edge with a margin below 0.15 UI. It must be ≤ 6 bits in every packet (spec 4.2), and the mean and worst case are printed. The long packets must not lose lock.
+- `HS_RXD` must equal the previous sample, and there must be no bit slip between consecutive edges, wherever both margins are good.
+- `HS_RXD` timing at the capture flop: setup ≥ 0.4 ns, hold ≥ 0.1 ns.
+- After the last packet: free-running clock 480 MHz ± 0.25 %. Then `CDR_EN` = 0: `CLK_RX` low and quiet, `HS_RXD` = 1.
+
+For the jitter statistics of spec 4.2, override the DUT (`jit_rms`, `t_amb`) and raise `n_short`. Not simulated yet.

@@ -102,3 +102,21 @@ Wrapper parameters: `i_hs`, `i_scale`, `t_en`, `t_dly`, `bias_mode` (HS TX), `t_
 ## Not modelled
 
 The transmission line and reflections, driver output impedance in HS (except `r_out`), pre-emphasis, crossover matching of FS/LS edges, ESD capacitance, the HS driver's real shutdown behaviour (Q4), and supply current except through the outputs.
+
+## Testbench
+
+`veriloga/tb/tb_afe_transceiver.scs` with the checker `tb_afe_transceiver_chk` (`tb_afe_transceiver.va`); run it with `veriloga/tb/run_va_tests.sh transceiver`. The DUT is the device side. The host is an `afe_term` whose 45 Ω terminations and 15 kΩ pull-downs the checker switches.
+
+| Step | Checks |
+|---|---|
+| FS attach (pull-up, host pull-downs) | DP 3.0 V, DM 0, `RXDP_A` / `RXRCV_A` = 1 |
+| HS, both terminations | no current 10 ns after `TX_EN`; J +400 mV ± 5 mV, K −400 mV; 10–90 % edge 0.5 ns; `TX_IN` → line 0.81 ns |
+| `TX_IN_P` = `TX_IN_N` | DP = DM = 200 mV |
+| chirp (device termination off) | DP 800 mV |
+| `TX_EN` = 0 | no current |
+| FS J / K / SE0 | levels, receivers, FS rise 4–20 ns, `RXRCV_A` delay 2.0–2.5 ns |
+| LS J / K | levels, LS rise 75–300 ns |
+| device pull-up + pull-downs | DP 3.0 V |
+| `FS_RX_EN_A` = 0, VDD33 = 2.5 V | isolated receiver values |
+
+The P/N check of `afe_hs_tx` prints a message during the P = N step; that message is expected. Not simulated yet.

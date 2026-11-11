@@ -1,0 +1,206 @@
+//-----------------------------------------------------------------------------
+// tb_afe_cdr.va - stimulus and checker for afe_cdr (netlist: tb_afe_cdr.scs)
+//
+// Packet generator on CDR_DATA (the HS receiver output, 1 = J): idle at 0
+// (SE0) -> SYNC (KJKJ...KK, sync_len bits as left after hubs) -> PRBS7
+// payload -> EOP (8 bits at the last level) -> idle of 20-60 bits plus a
+// random fraction of a bit, so every packet starts at a new phase relative to
+// CLK_RX.  CDR_V_IN_2 is held at 0.9 V, the PLL's control voltage at
+// 480 MHz, so the CDR VCO free-runs at exactly 480 MHz (the PLL itself is
+// tested in tb_afe_pll).
+//
+//   n_short packets, 0 ppm, 64-bit payload, SYNC 12 bits (every 4th: 32)
+//   n_long packets at +ppm_long, n_long at -ppm_long, len_long bits (1027
+//   bytes): the CDR must track without a slip (the digital elastic buffer
+//   covers the rest, spec 4.2)
+//
+// Checks at every rising CLK_RX edge inside a packet
+//   * margin m = distance of the CDR's sampling instant from the nearest bit
+//     boundary of CDR_DATA, in UI.  Lock time of a packet = bits from the
+//     first transition up to the last edge with m < m_min.  Requirement
+//     (spec 4.2, HS_ZMIN 4 / LOCK_DLY 2): <= max_lock = 6 bits in every
+//     packet; long packets must not lose lock after that.
+//   * HS_RXD at this edge = the data bit sampled at the previous edge, and
+//     consecutive edges sample consecutive bits (no slip), wherever both
+//     margins are >= m_min.
+//   * HS_RXD changes t_q after CLK_RX rises: setup (UI - t_q) >= 0.4 ns,
+//     hold t_q >= 0.1 ns at the digital capture flop (spec 4.2).
+// After the last packet: CLK_RX free-runs within 0.25 % of 480 MHz (D1); then
+// CDR_EN = 0: CLK_RX low and quiet, HS_RXD = 1 (isolated value).
+//-----------------------------------------------------------------------------
+`include "constants.vams"
+`include "disciplines.vams"
+`include "tb_afe_common.vams"
+
+module tb_afe_cdr_chk (CDR_DATA, CDR_EN, CDR_V_IN_2, CLK_RX, HS_RXD, VDD18A, VSS18A);
+    output     CDR_DATA, CDR_EN, CDR_V_IN_2;
+    input      CLK_RX, HS_RXD;
+    inout      VDD18A, VSS18A;
+    electrical CDR_DATA, CDR_EN, CDR_V_IN_2, CLK_RX, HS_RXD, VDD18A, VSS18A;
+
+    parameter real    ui        = 2.0833333e-9;
+    parameter integer n_short   = 40;
+    parameter integer n_long    = 2;          // per sign of the offset
+    parameter integer len_short = 64;
+    parameter integer len_long  = 8216;
+    parameter real    ppm_long  = 1000.0;
+    parameter integer max_lock  = 6;
+    parameter real    m_min     = 0.15;       // UI
+    parameter real    t_e       = 25e-12;     // midpoint of the 50 ps data / clock edges
+    parameter integer seed0     = 3;
+
+    real    ui_tx, t_bit, t_s, m, m_prev, t_clk, t_f0, t_seq, f_fr, lock_sum, t_q, tq_min, tq_max;
+    integer errors, reported, step, en, lvl, prev_lvl, gst, gi, glen, slen, plen, x, pkt, n_pkt;
+    integer cur_pb, first_tr, k, k_prev, k_viol, exp_prev, lb, lock_max, n_lock;
+    integer nclk, nclk0, n_dchk, n_derr, n_slip, n_tq, seed;
+
+    analog begin
+        @(initial_step) begin
+            errors = 0; reported = 0; step = 0; seed = seed0;
+            en = 1; lvl = 0; prev_lvl = 0; gst = 0; gi = 0; glen = 20; x = 1;
+            pkt = 0; n_pkt = n_short + 2 * n_long; slen = 12; plen = len_short;
+            ui_tx = ui; t_bit = 50e-9; t_seq = 1.0; t_clk = -1.0;
+            cur_pb = -1; first_tr = -1; k = 0; k_prev = -10; k_viol = -1; exp_prev = 0; m_prev = 0.0;
+            lock_sum = 0.0; lock_max = 0; n_lock = 0;
+            nclk = 0; nclk0 = 0; n_dchk = 0; n_derr = 0; n_slip = 0; n_tq = 0;
+            tq_min = 1.0; tq_max = 0.0; t_f0 = 0.0;
+        end
+
+        // ---- stimulus ----
+        V(VDD18A, VSS18A)     <+ 1.8;
+        V(CDR_V_IN_2, VSS18A) <+ 0.9;
+        V(CDR_EN, VSS18A)     <+ 1.8 * transition(en,  0, 50e-12);
+        V(CDR_DATA, VSS18A)   <+ 1.8 * transition(lvl, 0, 50e-12);
+
+        // ---- packet generator: one event per transmitted bit ----
+        @(timer(t_bit)) begin
+            prev_lvl = lvl;
+            if (gst == 0) begin                                    // idle
+                if (gi < glen) begin
+                    gi = gi + 1; lvl = 0;
+                end else if (pkt < n_pkt) begin                    // start a packet
+                    gst = 1; gi = 0; cur_pb = -1; first_tr = -1; k_viol = -1; k_prev = -10; m_prev = 0.0;
+                    if (pkt < n_short) begin
+                        ui_tx = ui; plen = len_short; slen = (pkt % 4 == 3) ? 32 : 12;
+                    end else if (pkt < n_short + n_long) begin
+                        ui_tx = ui / (1.0 + 1e-6 * ppm_long); plen = len_long; slen = 32;
+                    end else begin
+                        ui_tx = ui / (1.0 - 1e-6 * ppm_long); plen = len_long; slen = 32;
+                    end
+                end else begin                                     // all packets sent
+                    gst = 4;
+                    step = 1; t_seq = $abstime + 300e-9; nclk0 = nclk; t_f0 = $abstime;
+                end
+            end
+            if (gst == 1) begin                                    // SYNC: ... J K J K K
+                cur_pb = cur_pb + 1;
+                lvl = (gi == slen - 1) ? 0 : (((slen - 2 - gi) % 2 == 0) ? 0 : 1);
+                gi = gi + 1;
+                if (gi == slen) begin gst = 2; gi = 0; end
+            end else if (gst == 2) begin                           // PRBS7 payload
+                cur_pb = cur_pb + 1;
+                x = ((x << 1) | (((x >> 6) ^ (x >> 5)) & 1)) & 127;
+                lvl = x & 1;
+                gi = gi + 1;
+                if (gi == plen) begin gst = 3; gi = 0; end
+            end else if (gst == 3) begin                           // EOP: level held 8 bits
+                if (gi < 8) begin
+                    cur_pb = cur_pb + 1; gi = gi + 1;
+                end else begin                                     // packet done
+                    lb = (k_viol < first_tr) ? 0 : k_viol - first_tr + 1;
+                    if (first_tr < 0) begin
+                        errors = errors + 1;
+                        $strobe("ERROR: packet %d has no transition", pkt);
+                    end else if (pkt < n_short) begin
+                        n_lock = n_lock + 1; lock_sum = lock_sum + lb;
+                        if (lb > lock_max) lock_max = lb;
+                        if (lb > max_lock) begin
+                            errors = errors + 1;
+                            $strobe("ERROR: packet %d (SYNC %d bits): lock after %d bits (limit %d)",
+                                    pkt, slen, lb, max_lock);
+                        end
+                    end else if (lb > max_lock) begin
+                        errors = errors + 1;
+                        $strobe("ERROR: long packet %d: margin below %g UI at bit %d of %d",
+                                pkt, m_min, k_viol, cur_pb);
+                    end
+                    cur_pb = -1; gst = 0; gi = 1; lvl = 0; pkt = pkt + 1;
+                    glen = 20 + $rdist_uniform(seed, 0.0, 39.0);
+                    t_bit = t_bit + ui * $rdist_uniform(seed, 0.0, 1.0);   // new start phase
+                end
+            end
+            if (cur_pb >= 0 && first_tr < 0 && lvl != prev_lvl) first_tr = cur_pb;
+            if (gst != 4) t_bit = t_bit + ui_tx; else t_bit = 1.0;
+        end
+
+        // ---- rising CLK_RX: margin, lock, retimed data, slips ----
+        @(cross(V(CLK_RX, VSS18A) - 0.9, +1)) begin
+            nclk  = nclk + 1;
+            t_clk = $abstime;
+            t_s   = $abstime - t_e;                                // CDR sampling instant
+            if (cur_pb >= 0) begin
+                m = min(t_s - (t_bit - ui_tx + t_e), (t_bit + t_e) - t_s) / ui_tx;
+                k = (t_s < t_bit - ui_tx + t_e) ? cur_pb - 1 : cur_pb;
+                if (m < m_min) k_viol = k;
+                if (m_prev >= m_min && m >= m_min) begin
+                    n_dchk = n_dchk + 1;
+                    if ((V(HS_RXD, VSS18A) > 0.9) != exp_prev) begin
+                        n_derr = n_derr + 1;
+                        if (n_derr <= 10) $strobe("ERROR: HS_RXD wrong at %e s (packet %d bit %d)", $abstime, pkt, k_prev);
+                    end
+                    if (k != k_prev + 1) begin
+                        n_slip = n_slip + 1;
+                        if (n_slip <= 10) $strobe("ERROR: slip at %e s (packet %d bit %d -> %d)", $abstime, pkt, k_prev, k);
+                    end
+                end
+                exp_prev = lvl; m_prev = m; k_prev = k;
+            end else
+                m_prev = 0.0;
+        end
+
+        // ---- HS_RXD timing against the rising CLK_RX edge ----
+        @(cross(V(HS_RXD, VSS18A) - 0.9, 0)) begin
+            if (en && t_clk > 0.0 && step == 0) begin
+                t_q = $abstime - t_clk;
+                if (t_q < tq_min) tq_min = t_q;
+                if (t_q > tq_max) tq_max = t_q;
+            end
+        end
+
+        // ---- after the packets: free-running clock, disable ----
+        @(timer(t_seq)) begin
+            case (step)
+                1: begin
+                    f_fr = (nclk - nclk0) / ($abstime - t_f0);
+                    `TB_RNG("free-running CLK_RX without data [Hz]", f_fr, 480e6 * (1.0 - 2.5e-3), 480e6 * (1.0 + 2.5e-3))
+                    en = 0;
+                    step = 2; t_seq = $abstime + 20e-9;
+                end
+                2: begin
+                    `TB_RNG("CLK_RX with CDR_EN = 0 [V]", V(CLK_RX, VSS18A), -0.01, 0.1)
+                    `TB_RNG("HS_RXD with CDR_EN = 0 (isolated J) [V]", V(HS_RXD, VSS18A), 1.7, 1.81)
+                    nclk0 = nclk;
+                    step = 3; t_seq = $abstime + 200e-9;
+                end
+                3: begin
+                    `TB_CHK(nclk == nclk0, "CLK_RX toggles with CDR_EN = 0")
+                    if (n_lock > 0)
+                        $strobe("CDR lock after the first transition (%d packets): mean %g bits, worst %d bits",
+                                n_lock, lock_sum / n_lock, lock_max);
+                    `TB_RNG("short packets measured", n_lock, n_short, n_short)
+                    `TB_RNG("retimed-data checks", n_dchk, 1000, 1e9)
+                    `TB_RNG("HS_RXD errors", n_derr, 0, 0)
+                    `TB_RNG("bit slips", n_slip, 0, 0)
+                    `TB_RNG("HS_RXD hold (min t_q) [s]", tq_min, 0.1e-9, 1.0)
+                    `TB_RNG("HS_RXD setup (UI - max t_q) [s]", ui - tq_max, 0.4e-9, 1.0)
+                    `TB_FINISH
+                    $finish;
+                end
+            endcase
+        end
+
+        @(final_step) begin
+            `TB_TIMEOUT
+        end
+    end
+endmodule

@@ -1,0 +1,165 @@
+//-----------------------------------------------------------------------------
+// tb_afe_pll.va - stimulus and checker for afe_pll (netlist: tb_afe_pll.scs)
+//
+// Drives the reference, PLL_EN, REFSEL and the 1.8 V supply; watches
+// CLK_BIT_A, REF_DIG and the control voltage.  Two measurements run all the
+// time:
+//   * frequency of CLK_BIT_A over blocks of 1024 periods; while a locking
+//     phase runs, the time of the last block outside +-0.08 % of N * f_ref is
+//     the settling time (spec 4.3: <= 45 us at 24 MHz, <= 30 us at 19.2 MHz);
+//   * the digital lock criterion of usb_pll_lock_det: CLK_BIT_A edges per 256
+//     REF_DIG periods (5120 / 6400 / 4726 for 24 / 19.2 / 26 MHz).
+//
+// Sequence
+//   1  24 MHz, REFSEL = 01, PLL_EN = 1 for t_run: settling, window counts
+//      exact to +-1 after settling, 480 MHz, control voltage near 0.9 V
+//   2  PLL_EN = 0: CLK_BIT_A low and quiet, REF_DIG keeps running, loop
+//      filter discharged
+//   3  19.2 MHz, REFSEL = 00 (/25): the same checks, 6400 counts
+//   4  26 MHz, REFSEL = 10 (/20, no fractional divider): never a window
+//      inside 4726 +- 5 (the digital never reports lock), VCO at its 500 MHz
+//      limit
+// ppm_ref offsets the reference (crystal tolerance); the expected clock moves
+// with it, the window counts do not.
+//-----------------------------------------------------------------------------
+`include "constants.vams"
+`include "disciplines.vams"
+`include "tb_afe_common.vams"
+
+module tb_afe_pll_chk (CDR_FREF, PLL_EN, REFSEL1, REFSEL0, CLK_BIT_A, REF_DIG,
+                       CDR_CH_OUT_PLL, VDD18A, VSS18A);
+    output     CDR_FREF, PLL_EN, REFSEL1, REFSEL0;
+    input      CLK_BIT_A, REF_DIG, CDR_CH_OUT_PLL;
+    inout      VDD18A, VSS18A;
+    electrical CDR_FREF, PLL_EN, REFSEL1, REFSEL0, CLK_BIT_A, REF_DIG,
+               CDR_CH_OUT_PLL, VDD18A, VSS18A;
+
+    parameter real ppm_ref  = 0.0;
+    parameter real t_set_24 = 45e-6;     // spec 4.3
+    parameter real t_set_19 = 30e-6;
+    parameter real t_run    = 80e-6;     // length of each locking phase
+
+    real    f_ref, phr, t_step, dt, t_en, t_set, t_viol, f_meas, err, t_blk0, t_win0, f_exp;
+    integer errors, reported, step, en, rs1, rs0, rq, mode, n_exp;
+    integer nclk, nblk, nref, nref_tot, nwin_clk0, cnt, win_dev, n_win, n_good26, nclk_off, nref0;
+
+    analog begin
+        @(initial_step) begin
+            errors = 0; reported = 0; step = 0; t_step = 0.0;
+            f_ref = 24e6; en = 0; rs1 = 0; rs0 = 1; rq = 0; mode = 0; n_exp = 20;
+            nclk = 0; nblk = 0; nref = 0; nref_tot = 0; nwin_clk0 = 0;
+            win_dev = 0; n_win = 0; n_good26 = 0; f_meas = 0.0;
+            t_en = 0.0; t_set = t_set_24; t_viol = 0.0; t_blk0 = 0.0; t_win0 = 0.0;
+        end
+
+        // ---- stimulus ----
+        V(VDD18A, VSS18A) <+ 1.8;
+        phr = idtmod(f_ref * (1.0 + 1e-6 * ppm_ref), 0.0, 1.0, -0.5);
+        $bound_step(0.05 / f_ref);
+        @(cross(phr + 0.25, +1)) rq = 1;
+        @(cross(phr - 0.25, +1)) rq = 0;
+        V(CDR_FREF, VSS18A) <+ 1.8 * transition(rq,  0, 0.5e-9);
+        V(PLL_EN, VSS18A)   <+ 1.8 * transition(en,  0, 1e-9);
+        V(REFSEL1, VSS18A)  <+ 1.8 * transition(rs1, 0, 1e-9);
+        V(REFSEL0, VSS18A)  <+ 1.8 * transition(rs0, 0, 1e-9);
+
+        // ---- frequency of CLK_BIT_A, blocks of 1024 periods ----
+        @(cross(V(CLK_BIT_A, VSS18A) - 0.9, +1)) begin
+            nclk = nclk + 1;
+            nblk = nblk + 1;
+            if (nblk == 1024) begin
+                f_meas = 1024.0 / ($abstime - t_blk0);
+                t_blk0 = $abstime;
+                nblk   = 0;
+                if (mode == 1 || mode == 2) begin
+                    err = f_meas / (n_exp * f_ref * (1.0 + 1e-6 * ppm_ref)) - 1.0;
+                    if (abs(err) > 8e-4) t_viol = $abstime;
+                end
+            end
+        end
+
+        // ---- digital lock criterion: CLK_BIT_A edges per 256 REF_DIG periods ----
+        @(cross(V(REF_DIG, VSS18A) - 0.9, +1)) begin
+            nref = nref + 1;
+            nref_tot = nref_tot + 1;
+            if (nref == 256) begin
+                cnt = nclk - nwin_clk0;
+                if ((mode == 1 || mode == 2) && t_win0 > t_en + t_set) begin
+                    n_win = n_win + 1;
+                    if (abs(cnt - 256 * n_exp) > win_dev) win_dev = abs(cnt - 256 * n_exp);
+                end
+                if (mode == 3 && abs(cnt - 4726) <= 5) n_good26 = n_good26 + 1;
+                nwin_clk0 = nclk;
+                nref = 0;
+                t_win0 = $abstime;
+            end
+        end
+
+        // ---- sequence ----
+        @(timer(t_step)) begin
+            case (step)
+                0: dt = 1e-6;
+                1: begin                                   // lock at 24 MHz
+                    en = 1; mode = 1; n_exp = 20; t_set = t_set_24;
+                    t_en = $abstime; t_viol = $abstime; nblk = 0; t_blk0 = $abstime;
+                    win_dev = 0; n_win = 0;
+                    dt = t_run;
+                end
+                2: begin
+                    f_exp = 480e6 * (1.0 + 1e-6 * ppm_ref);
+                    `TB_RNG("24 MHz: settling time to 0.08 % [s]", t_viol - t_en, 0.0, t_set_24)
+                    `TB_RNG("24 MHz: max window deviation from 5120 after settling", win_dev, 0, 1)
+                    `TB_CHK(n_win >= 2, "24 MHz: fewer than 2 windows after settling")
+                    `TB_RNG("24 MHz: f(CLK_BIT_A) [Hz]", f_meas, f_exp * (1.0 - 2e-4), f_exp * (1.0 + 2e-4))
+                    `TB_RNG("24 MHz: control voltage [V]", V(CDR_CH_OUT_PLL, VSS18A), 0.85, 0.95)
+                    en = 0; mode = 0;
+                    dt = 50e-9;
+                end
+                3: begin                                   // disabled
+                    `TB_RNG("CLK_BIT_A level 50 ns after PLL_EN = 0 [V]", V(CLK_BIT_A, VSS18A), -0.01, 0.1)
+                    nclk_off = nclk; nref0 = nref_tot;
+                    dt = 2e-6;
+                end
+                4: begin
+                    `TB_CHK(nclk == nclk_off, "CLK_BIT_A toggles while PLL_EN = 0")
+                    `TB_RNG("REF_DIG edges in 2 us while PLL_EN = 0", nref_tot - nref0, 47, 49)
+                    `TB_RNG("control voltage while PLL_EN = 0 [V]", V(CDR_CH_OUT_PLL, VSS18A), -0.01, 0.05)
+                    f_ref = 19.2e6; rs1 = 0; rs0 = 0;
+                    dt = 1e-6;
+                end
+                5: begin                                   // lock at 19.2 MHz, /25
+                    en = 1; mode = 2; n_exp = 25; t_set = t_set_19;
+                    t_en = $abstime; t_viol = $abstime; nblk = 0; t_blk0 = $abstime;
+                    win_dev = 0; n_win = 0;
+                    dt = t_run;
+                end
+                6: begin
+                    f_exp = 480e6 * (1.0 + 1e-6 * ppm_ref);
+                    `TB_RNG("19.2 MHz: settling time to 0.08 % [s]", t_viol - t_en, 0.0, t_set_19)
+                    `TB_RNG("19.2 MHz: max window deviation from 6400 after settling", win_dev, 0, 1)
+                    `TB_CHK(n_win >= 2, "19.2 MHz: fewer than 2 windows after settling")
+                    `TB_RNG("19.2 MHz: f(CLK_BIT_A) [Hz]", f_meas, f_exp * (1.0 - 2e-4), f_exp * (1.0 + 2e-4))
+                    en = 0; mode = 0;
+                    f_ref = 26e6; rs1 = 1; rs0 = 0;
+                    dt = 1e-6;
+                end
+                7: begin                                   // 26 MHz with /20: must not lock
+                    en = 1; mode = 3; t_en = $abstime; n_good26 = 0;
+                    dt = 60e-6;
+                end
+                8: begin
+                    `TB_CHK(n_good26 == 0, "26 MHz with /20: a window inside 4726 +- 5 (digital would lock)")
+                    `TB_RNG("26 MHz with /20: f(CLK_BIT_A) at the VCO limit [Hz]", f_meas, 499e6, 501e6)
+                    `TB_FINISH
+                    $finish;
+                end
+            endcase
+            step = step + 1;
+            t_step = $abstime + dt;
+        end
+
+        @(final_step) begin
+            `TB_TIMEOUT
+        end
+    end
+endmodule

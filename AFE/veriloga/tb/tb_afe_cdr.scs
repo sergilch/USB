@@ -1,0 +1,16 @@
+// tb_afe_cdr.scs - testbench of afe_cdr (AFE/veriloga/afe_cdr.va)
+// Run from this directory:  spectre tb_afe_cdr.scs   (or ./run_va_tests.sh cdr)
+// Checker and sequence: tb_afe_cdr.va.  Result line in the log: TEST PASSED /
+// TEST FAILED.  The stop time is the watchdog (sequence needs about 85 us).
+// For the lock statistics with jitter, override e.g. DUT jit_rms=10p t_amb=30p.
+simulator lang=spectre
+global 0
+
+ahdl_include "../afe_cdr.va"
+ahdl_include "tb_afe_cdr.va"
+
+DUT (cdr_data cdr_en vcoarse clk_rx hs_rxd vfine vdd18a 0) afe_cdr
+CHK (cdr_data cdr_en vcoarse clk_rx hs_rxd vdd18a 0)       tb_afe_cdr_chk
+
+opts options save=allpub
+tr   tran stop=120u errpreset=moderate

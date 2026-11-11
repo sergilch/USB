@@ -1,0 +1,22 @@
+// tb_afe_transceiver.scs - testbench of afe_transceiver (AFE/veriloga/afe_transceiver.va)
+// Run from this directory:  spectre tb_afe_transceiver.scs   (or ./run_va_tests.sh transceiver)
+// Checker and sequence: tb_afe_transceiver.va.  The far end (host) is an
+// afe_term with its 45 Ohm terminations and 15 kOhm pull-downs switched by the
+// checker (its pull-up is tied off).  bias_mode 0: TX_I_5U / TX_VREF tied to
+// ground, TX_CAP_P/N tied to DP / DM.  The stop time is the watchdog
+// (sequence needs about 2.6 us).
+simulator lang=spectre
+global 0
+
+ahdl_include "../afe_transceiver.va"
+ahdl_include "tb_afe_transceiver.va"
+
+DUT (tx_in_p tx_in_n tx_en 0 0 dp dm \
+     fs_oe fs_dat fs_se0 fs_ls fs_rx_en rxrcv rxdp rxdm \
+     dp_pu hs_term pd0 pd1 dp dm vdd33 vdd18 0) afe_transceiver
+FE  (0 fe_term fe_pd fe_pd dp dm vdd33 0) afe_term
+CHK (tx_in_p tx_in_n tx_en fs_oe fs_dat fs_se0 fs_ls fs_rx_en rxrcv rxdp rxdm \
+     dp_pu hs_term pd0 pd1 fe_term fe_pd dp dm vdd33 vdd18 0) tb_afe_transceiver_chk
+
+opts options save=allpub
+tr   tran stop=5u errpreset=moderate

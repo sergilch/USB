@@ -1,0 +1,15 @@
+// tb_afe_receiver.scs - testbench of afe_receiver (AFE/veriloga/afe_receiver.va)
+// Run from this directory:  spectre tb_afe_receiver.scs   (or ./run_va_tests.sh receiver)
+// Checker and sequence: tb_afe_receiver.va.  RX_VDDO = 1.8 V (proposed 1.8 V
+// output stage, Q8).  The stop time is the watchdog (sequence needs about 2.7 us).
+simulator lang=spectre
+global 0
+
+ahdl_include "../afe_receiver.va"
+ahdl_include "tb_afe_receiver.va"
+
+DUT (rx_in_p rx_in_n rx_en rx_vref rx_out_p rx_out_n squelch disc rx_vdd 0 rx_vddo) afe_receiver
+CHK (rx_in_p rx_in_n rx_en rx_vref rx_out_p rx_out_n squelch disc rx_vdd rx_vddo 0) tb_afe_receiver_chk
+
+opts options save=allpub
+tr   tran stop=5u errpreset=moderate
