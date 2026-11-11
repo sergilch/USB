@@ -116,6 +116,8 @@ Every testbench checks its own results and ends with `TEST PASSED`, `TEST FAILED
 | `tb_usb_rx_elastic_buffer.v`  | `usb_rx_elastic_buffer.v`                            |
 | `tb_usb_rx_fsls_frontend.v`   | `usb_rx_fsls_frontend.v`                             |
 | `tb_usb_rx_hs_frontend.v`     | `usb_rx_hs_frontend.v`                               |
+| `tb_usb_rx_status_sync.v`     | `usb_rx_status_flt.v` `usb_rx_status_sync.v`         |
+| `tb_usb_line_state.v`         | `usb_line_state.v`                                   |
 
 ### Integration testbenches
 
@@ -150,17 +152,20 @@ For the mixed-signal simulation with the analog blocks (phase A8), `AFE/veriloga
 
 `tb_usb_pll_lock_det` (phase A4) runs the lock detector and the CLKOUT generator on the clock of a PLL model: lock time after enable, loss of lock on a frequency error, a missing reference or a dead VCO, the REFSEL settings, and the CLKOUT pulse shape and its glitch-free stop / start.
 
+`tb_usb_afe_fsls` (phase A5) is an FS / LS loopback through the AFE models: a device (the PHY) and a host on a ppm-offset clock, each with `usb_tx_path` → `usb_afe_tx_if` → `afe_fsls_bm` on one line with the pull-up and pull-downs. The device receives through `usb_rx_status_sync` into `usb_line_state` and `usb_rx_datapath`. Packets go both ways at FS and LS with D+ / D− skew; each must arrive intact, the sender must not receive its own packet, and LineState must follow the line voltages without skew glitches and within the latency limits, ending every packet with SE0 → J.
+
 Copy the integration testbenches' file lists from their headers.
 
 ## Project status
 
-- ✅ The TX path and the RX datapath are complete. All 29 testbenches (25 for the RTL, 4 for the AFE behavioural models) pass with Icarus Verilog.
+- ✅ The TX path and the RX datapath are complete. All 32 testbenches (28 for the RTL, 4 for the AFE behavioural models) pass with Icarus Verilog.
 - ✅ TX data boundary to the AFE (`usb_afe_tx_if`: retiming, HS / FS / LS driver select, `TX_EN` lead / lag, idle clamp), verified through the AFE models; not wired into the top level yet.
 - ✅ HS receive boundary to the AFE (`usb_afe_rx_if`: RX / CDR enables, isolation, squelch-based CDR lock, squelch-latency compensation), with the lock-time margin measured through the AFE models; not wired into the top level yet.
 - ✅ Clocking: `ce60` / CLKOUT generator (`usb_clk_gen`, glitch-free start / stop) and the digital PLL lock detector (`usb_pll_lock_det`, REFSEL decode, loss-of-lock and dead-clock detection), verified with a PLL model; not wired into the top level yet.
+- ✅ Receiver status sync and glitch filters (`usb_rx_status_sync`: FS/LS receivers, squelch, disconnect, VBUS / ID debounce) and LineState / HostDisconnect detection (`usb_line_state`: FS / LS skew filter, HS squelch, chirp), verified in an FS / LS loopback through the AFE models; not wired into the top level yet.
 - ✅ Pad wrapper `usb_ulpi_phy_pads` (BBSUD8F cells), verified for register access at the pins.
 - ⏳ The RX datapath is not wired into `usb_ulpi_phy_top` yet; that happens with the full top level.
-- ⏳ Line-state detection, mode/termination control, OTG/VBUS control, clock/reset/power management and the power sequencer (PLL / CDR enables) are still to be written. See [WORK_PLAN.md](WORK_PLAN.md).
+- ⏳ Mode/termination control, OTG/VBUS control, clock/reset/power management and the power sequencer (PLL / CDR enables) are still to be written. See [WORK_PLAN.md](WORK_PLAN.md).
 - ⏳ Not implemented yet. These signals are exported, but no logic reacts to them:
   - OpMode `01` / `11` (driver disable)
   - `soft_reset`

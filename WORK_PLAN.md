@@ -47,7 +47,7 @@ These blocks exist in RTL. All 22 RTL testbenches (plus 4 for the AFE behavioura
 | Diagram block | What is missing |
 |---|---|
 | RX datapath integration | `usb_rx_datapath` (done, see 2.1) is not instantiated in `usb_ulpi_phy_top` yet, which still takes `rx_*` as top-level ports. Planned for Phase 8.1. |
-| Line State / Event Detector | Not implemented. `linestate` and `host_disc` are top-level inputs. |
+| Line State / Event Detector | 2026-11-11: `usb_rx_status_sync` and `usb_line_state` exist (3.1 / 3.2, AFE plan A5), standalone; `linestate` and `host_disc` are still top-level inputs of `usb_ulpi_phy_top` until 8.1. Low-power LineState and wake-up events (5.6) are open. |
 | Mode / Termination Control | Not implemented. XcvrSelect / TermSelect / OpMode are only exported; there are no pull-up, termination or pull-down outputs. OpMode `01`/`11` have no effect. |
 | HS Handshake / Chirp support | Not implemented. `sync_dis` is tied to `0` in `usb_ulpi_phy_top`. |
 | OTG / VBUS Control | Not implemented. `otg_ctrl` is exported raw; VBUS/ID status are top-level inputs with no filtering. |
@@ -150,8 +150,8 @@ The chain from the diagram, with the interface to `usb_ulpi_rx_path` that alread
 
 | ID | Task |
 |---|---|
-| 3.1 | **Receiver status sync + glitch filter** (AFE interface): 2-FF sync of `rxdp`, `rxdm`, `rxrcv`; sync + N-cycle programmable filter for `squelch` and `disc`. |
-| 3.2 | **Line State / Event Detector**: FS/LS LineState = `{DM, DP}` (SE0 / J / K / SE1); in HS mode LineState comes from squelch (`!squelch` → J, squelch → SE0); chirp-mode qualification; HostDisconnect from `disc` (sampled during the HS EOP in host mode). Replaces the `linestate` / `host_disc` top-level inputs. |
+| 3.1 | **Receiver status sync + glitch filter** (AFE interface): 2-FF sync of `rxdp`, `rxdm`, `rxrcv`; sync + N-cycle programmable filter for `squelch` and `disc`. ✅ 2026-11-11: `usb_rx_status_sync` (+ `usb_rx_status_flt`), also with the VBUS / ID sync + debounce of 4.1; filter lengths are ports until 6.4; `tb_usb_rx_status_sync`. |
+| 3.2 | **Line State / Event Detector**: FS/LS LineState = `{DM, DP}` (SE0 / J / K / SE1); in HS mode LineState comes from squelch (`!squelch` → J, squelch → SE0); chirp-mode qualification; HostDisconnect from `disc` (sampled during the HS EOP in host mode). Replaces the `linestate` / `host_disc` top-level inputs. ✅ 2026-11-11: `usb_line_state` (SE0 / SE1 filter 2 / 14 ticks, HS squelch, chirp = squelch + differential receiver, HostDisconnect ORed over the HS TX window in host mode); `tb_usb_line_state`, and FS / LS through the AFE models in `tb_usb_afe_fsls`. Wiring in place of the top-level inputs: 8.1. |
 | 3.3 | **Mode / Termination Control**: decode XcvrSelect / TermSelect / OpMode / OTG pull-down bits into `dp_pullup_en`, `hs_term_en`, `dp_pulldown_en`, `dm_pulldown_en`, using the UTMI+/ULPI termination table (device and host roles). OpMode `01` = driver disabled; `11` handled per ULPI 1.1 (check what the spec defines for it). Switches on a `ce60` edge, in a fixed order (HS termination off before pull-up on), all off in reset/isolation. |
 | 3.4 | **TX control from Mode Control**: `sync_dis` and EOP suppression for OpMode `10` (decision D4), TX disabled for OpMode `01`, and HS vs. FS/LS driver mode on `tx_speed`. |
 | 3.5 | **HS support (decision D3)**: chirp-K / chirp-J transmission through OpMode `10` with 00h data, LineState behaviour during chirp, and resume / remote-wakeup K signalling through the same path. |
@@ -163,7 +163,7 @@ The chain from the diagram, with the interface to `usb_ulpi_rx_path` that alread
 
 | ID | Task |
 |---|---|
-| 4.1 | **VBUS / ID interface**: 2-FF sync + filter (optional ms-range debounce) for `a_vbus_vld`, `sess_vld`, `sess_end`, `id_gnd`; registered control outputs `id_pullup`, `drvvbus`, `chrg_vbus`, `dischrg_vbus` from OTG Control. |
+| 4.1 | **VBUS / ID interface**: 2-FF sync + filter (optional ms-range debounce) for `a_vbus_vld`, `sess_vld`, `sess_end`, `id_gnd` (✅ 2026-11-11 in `usb_rx_status_sync`: debounce of `vb_flt` + 1 `ce60` ticks, up to 1.09 ms); registered control outputs `id_pullup`, `drvvbus`, `chrg_vbus`, `dischrg_vbus` from OTG Control. |
 | 4.2 | ID sampling with `IdPullup` (only sample ID while the pull-up is on, with a settling delay); `DrvVbusExternal` / `UseExternalVbusIndicator` handling, or document them as not supported. |
 | 4.3 | Move the VbusState mapping out of `usb_ulpi_phy_top` into this block. |
 | 4.4 | Unit TB: RXCMD and interrupt-latch behaviour on VBUS/ID changes, through the existing IE masks. |

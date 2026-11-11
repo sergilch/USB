@@ -211,6 +211,8 @@ Requirement that follows (for Q6 / the PLL design): with the 100 µs budget abov
 
 The digital DPLL samples `rxrcv`, `rxdp`, `rxdm` asynchronously on `clk_bit` (2-FF synchronizers), so no setup / hold is required. The receivers must keep the D+ / D− skew below 5 ns (tested in `tb_usb_rx_datapath`) and must not produce SE1 glitches longer than 1 FS bit.
 
+All receiver status outputs (`rxdp`, `rxdm`, `rxrcv`, `squelch`, `disc`, VBUS / ID) are synchronized once, in `usb_rx_status_sync`, and reset to the isolated values of 3.2 / 3.4 / 3.5. LineState (`usb_line_state`) is `{RXDM_A, RXDP_A}` at FS / LS. An SE0 or SE1 shows only after it has held for 2 (FS) / 14 (LS) `ce60` ticks (UTMI+ skew filter), so receiver skew up to 4 ns (FS) and the SE1 overlap of slow LS edges are never reported. Measured in `tb_usb_afe_fsls` from the line voltage crossing 1.4 V to the LineState change, with the `afe_fsls_bm` delays (2 ns receiver, FS / LS ramps): J / K ≤ 14 `clk_bit` cycles (FS and LS), SE0 / SE1 ≤ 117 cycles at LS (limit 124). In HS, LineState is `SQUELCH_A` (squelch = SE0, else J). In chirp mode (OpMode 10) it is `SQUELCH_A` qualified by `RXRCV_A`, because 800 mV chirps are below the single-ended thresholds; so `RXRCV_A` must resolve ±800 mV differential at the HS common mode (≈ 0.4 V; part of Q5).
+
 ## 5. Power-up and suspend sequence (Proposed)
 
 ```
