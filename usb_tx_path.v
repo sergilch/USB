@@ -19,6 +19,8 @@
 //   bypass_en : 1 = no bit stuffing and no NRZI (OpMode 10); the data bits are
 //               sent as line levels.  SYNC / EOP are still sent (SYNC can be
 //               disabled upstream with sync_dis).
+//   eop_dis   : 1 = no EOP at the end of the packet (OpMode 10 chirp / K
+//               signalling, see usb_tx_serializer and usb_mode_term_ctrl).
 //
 // Underrun (HS: the serializer did not get a word in time; it ends the packet
 //   with an EOP and pulses tx_underrun): the rest of the aborted packet is still
@@ -48,6 +50,7 @@ module usb_tx_path #(
 
     input  wire [1:0]  speed,
     input  wire        bypass_en,
+    input  wire        eop_dis,
 
     input  wire        in_valid,
     output wire        in_ready,
@@ -124,6 +127,7 @@ module usb_tx_path #(
         .rst_n       (rst_n),
         .ce60        (ce60),
         .speed       (speed),
+        .eop_dis     (eop_dis),
         .in_valid    (n_valid && !drop),
         .in_ready    (ser_ready),
         .in_data     (n_data),

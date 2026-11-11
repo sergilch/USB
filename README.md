@@ -33,7 +33,8 @@ usb_ulpi_phy_pads           BBSUD8F pads for CLK / DATA / DIR / NXT / STP / RESE
 │                           pulls (Interface Control bit 7), RESETB synchronizer, NAND tree
 └── usb_ulpi_phy_top
 usb_ulpi_phy_top            phy_if + register file; maps comparators -> VbusState,
-│                           XcvrSelect -> TX speed, OpMode 10 -> bypass (no stuff/NRZI)
+│                           XcvrSelect -> TX speed
+├── usb_mode_term_ctrl      terminations (pull-up / 45 Ohm / pull-downs), OpMode 10 framing
 ├── usb_ulpi_reg_file       ULPI register file (immediate set, mirrored at ext 00h-3Fh), IE masks
 └── usb_ulpi_phy_if
     ├── usb_ulpi_core
@@ -118,6 +119,7 @@ Every testbench checks its own results and ends with `TEST PASSED`, `TEST FAILED
 | `tb_usb_rx_hs_frontend.v`     | `usb_rx_hs_frontend.v`                               |
 | `tb_usb_rx_status_sync.v`     | `usb_rx_status_flt.v` `usb_rx_status_sync.v`         |
 | `tb_usb_line_state.v`         | `usb_line_state.v`                                   |
+| `tb_usb_mode_term_ctrl.v`     | `usb_mode_term_ctrl.v`                               |
 
 ### Integration testbenches
 
@@ -154,20 +156,23 @@ For the mixed-signal simulation with the analog blocks (phase A8), `AFE/veriloga
 
 `tb_usb_afe_fsls` (phase A5) is an FS / LS loopback through the AFE models: a device (the PHY) and a host on a ppm-offset clock, each with `usb_tx_path` → `usb_afe_tx_if` → `afe_fsls_bm` on one line with the pull-up and pull-downs. The device receives through `usb_rx_status_sync` into `usb_line_state` and `usb_rx_datapath`. Packets go both ways at FS and LS with D+ / D− skew; each must arrive intact, the sender must not receive its own packet, and LineState must follow the line voltages without skew glitches and within the latency limits, ending every packet with SE0 → J.
 
+`tb_usb_afe_chirp` (phase A6) puts two PHY ends, a device and a host, on one line with all AFE models (terminations, HS and FS drivers, HS receiver, squelch, CDR, FS receivers) and runs ULPI Link models on top of them: attach, bus reset, the HS handshake (device chirp K, host K-J chirps, both ends switching their terminations), HS packets both ways, disconnect detection, suspend, remote wake-up and resume. The long USB timers are scaled down; the checks cover the line levels (chirp 700 / 400 mV, no J inside a chirp), LineState at both ends, the termination order and every packet.
+
 Copy the integration testbenches' file lists from their headers.
 
 ## Project status
 
-- ✅ The TX path and the RX datapath are complete. All 32 testbenches (28 for the RTL, 4 for the AFE behavioural models) pass with Icarus Verilog.
+- ✅ The TX path and the RX datapath are complete. All 34 testbenches (30 for the RTL, 4 for the AFE behavioural models) pass with Icarus Verilog.
 - ✅ TX data boundary to the AFE (`usb_afe_tx_if`: retiming, HS / FS / LS driver select, `TX_EN` lead / lag, idle clamp), verified through the AFE models; not wired into the top level yet.
 - ✅ HS receive boundary to the AFE (`usb_afe_rx_if`: RX / CDR enables, isolation, squelch-based CDR lock, squelch-latency compensation), with the lock-time margin measured through the AFE models; not wired into the top level yet.
 - ✅ Clocking: `ce60` / CLKOUT generator (`usb_clk_gen`, glitch-free start / stop) and the digital PLL lock detector (`usb_pll_lock_det`, REFSEL decode, loss-of-lock and dead-clock detection), verified with a PLL model; not wired into the top level yet.
 - ✅ Receiver status sync and glitch filters (`usb_rx_status_sync`: FS/LS receivers, squelch, disconnect, VBUS / ID debounce) and LineState / HostDisconnect detection (`usb_line_state`: FS / LS skew filter, HS squelch, chirp), verified in an FS / LS loopback through the AFE models; not wired into the top level yet.
+- ✅ Mode / termination control (`usb_mode_term_ctrl`: pull-up, HS terminations and pull-downs per the USB3320 table with break-before-make switching; OpMode 10 chirp / resume framing; OpMode 01 driver disable), inside `usb_ulpi_phy_top`; attach, HS handshake, suspend / resume and disconnect verified with two PHY ends through the AFE models.
 - ✅ Pad wrapper `usb_ulpi_phy_pads` (BBSUD8F cells), verified for register access at the pins.
 - ⏳ The RX datapath is not wired into `usb_ulpi_phy_top` yet; that happens with the full top level.
-- ⏳ Mode/termination control, OTG/VBUS control, clock/reset/power management and the power sequencer (PLL / CDR enables) are still to be written. See [WORK_PLAN.md](WORK_PLAN.md).
+- ⏳ OTG/VBUS control, clock/reset/power management and the power sequencer (PLL / CDR enables) are still to be written. See [WORK_PLAN.md](WORK_PLAN.md).
 - ⏳ Not implemented yet. These signals are exported, but no logic reacts to them:
-  - OpMode `01` / `11` (driver disable)
+  - OpMode `11` (no SYNC / EOP generation; transmits like `00`)
   - `soft_reset`
   - SuspendM / low-power mode (`dir_hold` is an input reserved for a future low-power controller)
   - LS via FS preamble (XcvrSelect `11`)

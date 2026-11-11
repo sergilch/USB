@@ -75,11 +75,12 @@ module tb_usb_afe_tx_if;
     reg        f_valid = 1'b0, f_last = 1'b0;
     reg  [7:0] f_data = 8'd0;
     reg  [1:0] spd = 2'b00;
+    reg        byp_r = 1'b0, eopd_r = 1'b0, lead_first_r = 1'b0;   // OpMode 10 (phase [7])
     wire       f_ready, s_txd, s_en, s_se0, t_busy, t_done, t_under;
     wire [1:0] s_spd;
 
     usb_tx_path u_tx (
-        .clk_bit(clk_bit), .rst_n(rst_n), .ce60(ce60), .speed(spd), .bypass_en(1'b0),
+        .clk_bit(clk_bit), .rst_n(rst_n), .ce60(ce60), .speed(spd), .bypass_en(byp_r), .eop_dis(eopd_r),
         .in_valid(f_valid), .in_ready(f_ready), .in_data(f_data), .in_last(f_last),
         .txd(s_txd), .tx_en(s_en), .tx_se0(s_se0), .tx_speed(s_spd),
         .busy(t_busy), .tx_done(t_done), .tx_underrun(t_under));
@@ -104,7 +105,7 @@ module tb_usb_afe_tx_if;
     usb_afe_tx_if dut (
         .clk_bit(clk_bit), .rst_n(rst_n),
         .txd(s_txd), .tx_en(s_en), .tx_se0(s_se0), .tx_speed(s_spd),
-        .tx_lead(lead_r), .tx_lag(lag_r), .drv_dis(drv_dis), .iso_en(iso_en),
+        .tx_lead(lead_r), .tx_lag(lag_r), .drv_dis(drv_dis), .iso_en(iso_en), .lead_first(lead_first_r),
         .hs_tx_p(hs_p), .hs_tx_n(hs_n), .hs_tx_en(hs_en),
         .fs_oe(fs_oe), .fs_dat(fs_dat), .fs_se0(fs_se0), .fs_ls(fs_ls),
         .tx_active(tx_act));
@@ -202,7 +203,8 @@ module tb_usb_afe_tx_if;
             if (clamp_prev) begin
                 E_p = 1'b1; E_en = 1'b0; E_oe = 1'b0; E_dat = 1'b1; E_se0 = 1'b0; E_ls = 1'b0;
             end else begin
-                E_p   = o_hs ? H_d[idx] : (hs_on ? E_p : 1'b1);
+                // lead start (TX_EN was low): J, or the first bit with lead_first
+                E_p   = o_hs ? H_d[idx] : (hs_on ? (E_en ? E_p : (lead_first_r ? H_d[(n - 3) & 63] : 1'b1)) : 1'b1);
                 E_en  = hs_on;
                 E_oe  = o_fs;
                 E_dat = ~o_fs | H_d[idx];
@@ -706,6 +708,35 @@ module tb_usb_afe_tx_if;
         for (i = 0; i < 2; i = i + 1) fs_pkt(2'b10, 1 + i, i == 1);
         $display("    FS/LS line checks: %0d samples, packets decoded %0d", n_fs_chk, fs_ok_n);
         if (n_fs_chk < 1000) begin errors = errors + 1; $display("ERROR: too few FS/LS line checks"); end
+
+        // ---------------- [7] OpMode 10 chirps: lead level ----------------
+        $display("[7] HS chirp K / J (bypass, no EOP): lead at J vs. lead_first");
+        env(2'b00);
+        set_cfg(17, 0);                                 // lead well beyond T_EN: a visible J
+        @(negedge clk_bit) begin byp_r = 1'b1; eopd_r = 1'b1; end
+        dec_en = 1'b0;
+        for (i = 0; i < 3; i = i + 1) begin
+            lead_first_r = (i != 0);
+            f_n = 0;
+            for (gi = 0; gi < 40; gi = gi + 1) begin
+                f_b[gi] = (i == 2) ? 8'hFF : 8'h00; f_lm[gi] = (gi == 39);
+            end
+            f_n = 40; f_idx = f_n;
+            st_pre_j = 0; st_lost = 0;
+            go(2'b00);
+            wait_done;
+            // chirp K: J samples before the K while the driver is settled
+            if (i == 0) begin
+                $display("    chirp K, lead_first 0: %0d J sample(s) on the line before the K", st_pre_j);
+                if (st_pre_j != pk_lead - jmin) begin errors = errors + 1; $display("ERROR: expected %0d J samples", pk_lead - jmin); end
+            end else if (i == 1) begin
+                $display("    chirp K, lead_first 1: %0d J sample(s) before the K", st_pre_j);
+                if (st_pre_j != 0) begin errors = errors + 1; $display("ERROR: J on the line before a chirp K with lead_first"); end
+            end
+        end
+        @(negedge clk_bit) begin byp_r = 1'b0; eopd_r = 1'b0; lead_first_r = 1'b0; end
+        dec_en = 1'b1;
+        hs_pkt(4, 0);
 
         // ---------------- summary ----------------
         $display("    pins checked for %0d cycles, HS line samples (driver settled) %0d, packets decoded %0d",

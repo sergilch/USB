@@ -99,14 +99,14 @@ module tb_usb_afe_fsls;
     wire d_hp, d_hn, d_hen, d_oe, d_dat, d_fse0, d_fls, d_act;
 
     usb_tx_path u_dtx (
-        .clk_bit(clk_bit), .rst_n(rst_n), .ce60(ce60), .speed(spd), .bypass_en(1'b0),
+        .clk_bit(clk_bit), .rst_n(rst_n), .ce60(ce60), .speed(spd), .bypass_en(1'b0), .eop_dis(1'b0),
         .in_valid(d_valid), .in_ready(d_ready), .in_data(d_data), .in_last(d_last),
         .txd(d_txd), .tx_en(d_en), .tx_se0(d_se0), .tx_speed(d_spd),
         .busy(d_busy), .tx_done(d_done), .tx_underrun(d_under));
     usb_afe_tx_if u_dafe (
         .clk_bit(clk_bit), .rst_n(rst_n),
         .txd(d_txd), .tx_en(d_en), .tx_se0(d_se0), .tx_speed(d_spd),
-        .tx_lead(5'd10), .tx_lag(3'd0), .drv_dis(1'b0), .iso_en(1'b0),
+        .tx_lead(5'd10), .tx_lag(3'd0), .drv_dis(1'b0), .iso_en(1'b0), .lead_first(1'b0),
         .hs_tx_p(d_hp), .hs_tx_n(d_hn), .hs_tx_en(d_hen),
         .fs_oe(d_oe), .fs_dat(d_dat), .fs_se0(d_fse0), .fs_ls(d_fls), .tx_active(d_act));
 
@@ -116,14 +116,14 @@ module tb_usb_afe_fsls;
     wire h_hp, h_hn, h_hen, h_oe, h_dat, h_fse0, h_fls, h_act;
 
     usb_tx_path u_htx (
-        .clk_bit(clk_far), .rst_n(rst_n), .ce60(ce_far), .speed(spd), .bypass_en(1'b0),
+        .clk_bit(clk_far), .rst_n(rst_n), .ce60(ce_far), .speed(spd), .bypass_en(1'b0), .eop_dis(1'b0),
         .in_valid(h_valid), .in_ready(h_ready), .in_data(h_data), .in_last(h_last),
         .txd(h_txd), .tx_en(h_en), .tx_se0(h_se0), .tx_speed(h_spd),
         .busy(h_busy), .tx_done(h_done), .tx_underrun(h_under));
     usb_afe_tx_if u_hafe (
         .clk_bit(clk_far), .rst_n(rst_n),
         .txd(h_txd), .tx_en(h_en), .tx_se0(h_se0), .tx_speed(h_spd),
-        .tx_lead(5'd10), .tx_lag(3'd0), .drv_dis(1'b0), .iso_en(1'b0),
+        .tx_lead(5'd10), .tx_lag(3'd0), .drv_dis(1'b0), .iso_en(1'b0), .lead_first(1'b0),
         .hs_tx_p(h_hp), .hs_tx_n(h_hn), .hs_tx_en(h_hen),
         .fs_oe(h_oe), .fs_dat(h_dat), .fs_se0(h_fse0), .fs_ls(h_fls), .tx_active(h_act));
 

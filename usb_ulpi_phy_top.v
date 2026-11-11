@@ -13,10 +13,16 @@
 //     SessEnd (VBUS below the session-end threshold) -> 00, otherwise 01.
 //   * speed (TX bit rate)  = XcvrSelect of Function Control: 00 HS, 01 FS, 10 LS,
 //     11 (LS via FS preamble) is sent at the FS rate by the serializer.
-//   * bypass (no bit stuffing, no NRZI) = OpMode 10.  OpMode 01 (non-driving) and 11, the
-//     Reset bit (soft_reset) and SuspendM / low-power handling are exported as they are:
-//     reacting to them (disabling the driver, resetting the PHY core, entering low power
-//     and holding DIR) belongs to the blocks that are still to be written.
+//   * Mode / termination control (usb_mode_term_ctrl, AFE plan A6): XcvrSelect,
+//     TermSelect, OpMode and the OTG Control pull-down bits -> the pull-up /
+//     termination / pull-down enables (USB3320 Table 5-1, break before make, on
+//     ce60), and the TX framing: OpMode 10 = no bit stuffing, no NRZI, no SYNC
+//     (cfg_bypass, sync_dis) and no EOP except for a host at FS / LS (resume K);
+//     OpMode 01 = drv_dis (drivers off, for usb_afe_tx_if).  Its iso_en is tied low
+//     until the power sequencer exists (A7).  OpMode 11 transmits like 00 (not
+//     supported).  The Reset bit (soft_reset) and SuspendM / low-power handling are
+//     exported as they are: reacting to them (resetting the PHY core, entering low
+//     power and holding DIR) belongs to the blocks that are still to be written.
 //
 // Clocking: everything on clk_bit with the tick enable ce60.
 //-----------------------------------------------------------------------------
@@ -69,6 +75,15 @@ module usb_ulpi_phy_top #(
     output wire [1:0]  cfg_speed,
     output wire        cfg_bypass,
 
+    // mode / termination control (AFE pins, DOC/afe_interface_spec.md 3.5)
+    output wire        dp_pullup_en,
+    output wire        dm_pullup_en,
+    output wire        hs_term_en,
+    output wire        dp_pulldown_en,
+    output wire        dm_pulldown_en,
+    output wire        drv_dis,
+    output wire        host_mode,
+
     // transmitter side
     output wire        txd,
     output wire        tx_en,
@@ -91,8 +106,32 @@ module usb_ulpi_phy_top #(
                             sess_vld   ? 2'b10 :
                             sess_end   ? 2'b00 : 2'b01;
 
+    wire        tx_sync_dis, tx_eop_dis, term_busy;
+
     assign cfg_speed  = xcvrselect;
-    assign cfg_bypass = (opmode == 2'b10);
+
+    usb_mode_term_ctrl u_mode (
+        .clk_bit        (clk_bit),
+        .rst_n          (rst_n),
+        .ce60           (ce60),
+        .xcvrselect     (xcvrselect),
+        .termselect     (termselect),
+        .opmode         (opmode),
+        .dp_pulldown    (otg_ctrl[1]),
+        .dm_pulldown    (otg_ctrl[2]),
+        .iso_en         (1'b0),
+        .dp_pullup_en   (dp_pullup_en),
+        .dm_pullup_en   (dm_pullup_en),
+        .hs_term_en     (hs_term_en),
+        .dp_pulldown_en (dp_pulldown_en),
+        .dm_pulldown_en (dm_pulldown_en),
+        .term_busy      (term_busy),
+        .tx_bypass      (cfg_bypass),
+        .tx_sync_dis    (tx_sync_dis),
+        .tx_eop_dis     (tx_eop_dis),
+        .drv_dis        (drv_dis),
+        .host_mode      (host_mode)
+    );
 
     usb_ulpi_phy_if #(
         .FS_DIV   (FS_DIV),
@@ -111,7 +150,8 @@ module usb_ulpi_phy_top #(
         .ulpi_data_oe  (ulpi_data_oe),
         .speed         (cfg_speed),
         .bypass_en     (cfg_bypass),
-        .sync_dis      (1'b0),
+        .sync_dis      (tx_sync_dis),
+        .eop_dis       (tx_eop_dis),
         .dir_hold      (dir_hold),
         .rx_start      (rx_start),
         .rx_valid      (rx_valid),

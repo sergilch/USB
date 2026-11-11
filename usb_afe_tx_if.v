@@ -26,7 +26,10 @@
 //     so hs_tx_en rises tx_lead bit times before the first SYNC bit: the data
 //     (all speeds) is delayed by tx_lead extra clk_bit cycles, hs_tx_en is not.
 //     After the last EOP bit hs_tx_en stays high tx_lag more bit times.  During
-//     the lead hs_tx_p / hs_tx_n show J (the idle level), during the lag they
+//     the lead hs_tx_p / hs_tx_n show J (the idle level), or with lead_first = 1
+//     the level of the first data bit (OpMode 10, usb_mode_term_ctrl tx_bypass:
+//     a chirp K must not start with a J, which the driver would put on the line
+//     for the last tx_lead x 2.08 ns - T_EN of the lead); during the lag they
 //     hold the EOP level, so the lag lengthens the HS EOP by tx_lag bits (USB
 //     receivers treat any bit-stuff error as EOP; SOF EOPs are 40 bits long).
 //     FS/LS have no lead / lag: fs_oe is the delayed tx_en.
@@ -93,6 +96,7 @@ module usb_afe_tx_if #(
     input  wire [LAG_W-1:0]  tx_lag,         // HS TX_EN lag, bit times
     input  wire              drv_dis,        // drivers off (non-driving OpMode)
     input  wire              iso_en,         // isolation: outputs to idle
+    input  wire              lead_first,     // HS lead at the first bit's level, not J (static)
 
     // HS transmitter
     output reg               hs_tx_p,
@@ -138,11 +142,14 @@ module usb_afe_tx_if #(
     reg              e_hs_q;             // HS bit in the input register, delayed (TX_EN lead)
     reg [LAG_W-1:0]  lag_cnt;
     reg              lag_on;
+    reg              d_first;            // first HS bit of the packet (lead level)
 
     wire o_hs   = p_en[0] & spd_hs;      // HS bit at the end of the delay line
     wire o_fs   = p_en[0] & ~spd_hs;     // FS/LS bit
     wire hs_on  = e_hs_q | o_hs | lag_on;
-    wire hs_p_n = clamp ? 1'b1 : o_hs ? p_d[0] : hs_on ? hs_tx_p : 1'b1;
+    // lead start (hs_tx_en still low): J, or the first bit with lead_first
+    wire hs_p_n = clamp ? 1'b1 : o_hs ? p_d[0] :
+                  hs_on ? (hs_tx_en ? hs_tx_p : (lead_first ? d_first : 1'b1)) : 1'b1;
 
     always @(posedge clk_bit or negedge rst_n) begin
         if (!rst_n) begin
@@ -166,6 +173,7 @@ module usb_afe_tx_if #(
             e_hs_q   <= 1'b0;
             lag_cnt  <= {LAG_W{1'b0}};
             lag_on   <= 1'b0;
+            d_first  <= 1'b1;
             hs_tx_p  <= 1'b1;
             hs_tx_n  <= 1'b0;
             hs_tx_en <= 1'b0;
@@ -205,6 +213,7 @@ module usb_afe_tx_if #(
             end
 
             e_hs_q <= ~clamp & i_en & i_hs;
+            if (i_en && i_hs && !e_hs_q) d_first <= i_d;
 
             // TX_EN lag after the last HS bit
             if (clamp) begin

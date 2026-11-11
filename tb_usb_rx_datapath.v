@@ -97,7 +97,7 @@ module tb_usb_rx_datapath;
         .rst_n       (rst_n),
         .ce60        (ce60_far),
         .speed       (speed),
-        .bypass_en   (1'b0),
+        .bypass_en   (1'b0), .eop_dis(1'b0),
         .in_valid    (f_valid),
         .in_ready    (f_ready),
         .in_data     (f_data),

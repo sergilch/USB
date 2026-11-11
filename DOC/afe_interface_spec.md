@@ -89,6 +89,7 @@ Direction is seen from the digital core. "Reset" is the value while the digital 
 | Digital signal | Analog pin | Dir | Function | Reset / Isolated | Status |
 |---|---|---|---|---|---|
 | `dp_pullup_en` | `DP_PULLUP_EN_A` | out | 1.5 kΩ DP pull-up (device attach) | 0 / 0 (detached) | Fixed (diagram) |
+| `dm_pullup_en` | `DM_PULLUP_EN_A` (**New**, optional) | out | 1.5 kΩ DM pull-up (LS peripheral; optional in ULPI, may stay unconnected) | 0 / 0 | Proposed |
 | `hs_term_en` | `HS_TERM_EN_A` | out | 45 Ω HS terminations | 0 / 0 | Fixed (diagram) |
 | `dp_pulldown_en`, `dm_pulldown_en` | `PD_EN_A[1:0]` | out | 15 kΩ pull-downs (host / OTG) | 0 / 0 | Fixed (diagram) |
 | `disc` | `DISC_A` | in | HS disconnect (> 525–625 mV), host mode only | — / 0 | Fixed (thresholds) |
@@ -116,13 +117,15 @@ Direction is seen from the digital core. "Reset" is the value while the digital 
 |---|---|---|
 | `TX_IN_P/N` change | On the rising `clk_bit` edge + clock-to-Q (0.3–1.2 ns over corners, section 7.2); `TX_IN_P` and `TX_IN_N` come from two separate flops (`usb_afe_tx_if`) | Fixed |
 | P/N skew at the TX input pins | ≤ 50 ps (Proposed; to be checked against the TX's tolerance) | TBC |
-| `TX_EN` lead before the first SYNC bit | `TX_LEAD` bit times, programmable 0–31, default from the TX enable time (Q4). `TX_IN_P/N` show J during the lead. | Proposed |
+| `TX_EN` lead before the first SYNC bit | `TX_LEAD` bit times, programmable 0–31, default from the TX enable time (Q4). `TX_IN_P/N` show J during the lead; in OpMode 10 (chirp, test J / K) they show the first data bit instead (`lead_first`), so a chirp K never starts with a J. | Proposed |
 | `TX_EN` lag after the last EOP bit | `TX_LAG` bit times, programmable 0–7. `TX_IN_P/N` hold the EOP level during the lag, so the line EOP is 8 + `TX_LAG` bits (receivers take any bit-stuff error as EOP). | Proposed |
 | Output delay `TX_IN` → `TX_OUT` | constant, any value, its variation over corners needed for the USB TX start-delay budget | TBC (Q4) |
 
 The digital implements the lead by delaying the data path by `TX_LEAD` bits in a shift register on `clk_bit` (`usb_afe_tx_if`, phase A2). Latency from the serializer to the pins: data `TX_LEAD` + 3 bit times, `TX_EN` rise 3, `TX_EN` fall `TX_LEAD` + 3 + `TX_LAG`. This adds `TX_LEAD` + 3 bit times to the PHY's TX start delay, which must be checked against the ULPI 1.1 / USB 2.0 budget once the defaults are known. `TX_LEAD` + `TX_LAG` + 3 must stay below the inter-packet gap (≥ 88 bit times), otherwise `TX_EN` stays on across the gap; the ranges above guarantee that. New values are taken over only while the TX is idle.
 
 **Default from the A2 simulation** (`tb_usb_afe_tx_if`, `afe_hs_tx_bm` with `T_EN` = 20 ns, line sampled 1.0 ns after each `clk_bit` edge): the whole SYNC reaches the line when `TX_LEAD` · 2.083 ns ≥ `T_EN`, i.e. `TX_LEAD` = ⌈`T_EN` / bit time⌉ = 10; then the line shows less than one bit of J before SYNC. Each bit of lead less loses one SYNC bit (lead 0: 10 bits lost, which eats into the receivers' SYNC budget behind hubs, section 4.2); each bit more adds one bit of J before SYNC. So the default is ⌈`T_EN` / 2.083 ns⌉ with `T_EN` the worst-corner value from Q4.
+
+Chirp levels measured in A6 (`tb_usb_afe_chirp`, `afe_hs_tx_bm` 17.78 mA): device chirp K into the host's 45 Ω with the device pull-up still on, DM − DP = 0.70 V (DP 96 mV from the pull-up); host chirps after both ends switched to 45 Ω, 0.40 V. The termination enables (3.5) switch on `ce60` edges, break before make (`BBM_TK` = 2 ticks, 33 ns, between the 1.5 kΩ pull-up going off and the 45 Ω going on, and the reverse), so the analog switches may take up to that long.
 
 Idle clamp: `drv_dis` (non-driving OpMode) or `iso_en`, registered once in the digital, sets `TX_IN_P` = 1, `TX_IN_N` = 0, `TX_EN` = 0 and the FS/LS controls to their idle values on the second `clk_bit` edge, and drops the rest of a packet in progress (it never resumes in the middle).
 

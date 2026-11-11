@@ -90,7 +90,7 @@ module tb_usb_afe_rx_if;
     wire [1:0] f_tx_speed;
 
     usb_tx_path u_far (
-        .clk_bit(clk_far), .rst_n(rst_n), .ce60(ce60_far), .speed(2'b00), .bypass_en(1'b0),
+        .clk_bit(clk_far), .rst_n(rst_n), .ce60(ce60_far), .speed(2'b00), .bypass_en(1'b0), .eop_dis(1'b0),
         .in_valid(f_valid), .in_ready(f_ready), .in_data(f_data), .in_last(f_last),
         .txd(f_txd), .tx_en(f_tx_en), .tx_se0(f_tx_se0), .tx_speed(f_tx_speed),
         .busy(f_busy), .tx_done(f_done), .tx_underrun(f_under));

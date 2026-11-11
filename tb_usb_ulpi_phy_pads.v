@@ -9,7 +9,8 @@
 //            usb_nrzi_encoder.v usb_tx_serializer.v usb_tx_path.v usb_tx_datapath.v \
 //            usb_ulpi_core.v usb_ulpi_rx_handler.v usb_ulpi_rxcmd_gen.v \
 //            usb_ulpi_out_arbiter.v usb_ulpi_rx_path.v usb_ulpi_phy_if.v \
-//            usb_ulpi_reg_file.v usb_ulpi_phy_top.v usb_ulpi_phy_pads.v tb_usb_ulpi_phy_pads.v
+//            usb_ulpi_reg_file.v usb_mode_term_ctrl.v usb_ulpi_phy_top.v usb_ulpi_phy_pads.v \
+//            tb_usb_ulpi_phy_pads.v
 //   vvp sim_pads
 // Without -DDISPLAY_PD_PU_EN the pads do not model their pulls: the test runs the same,
 // the bus floats (X) in turnaround cycles and the pull checks are skipped.

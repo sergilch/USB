@@ -24,6 +24,7 @@
 //   speed     : XcvrSelect, 00 HS, 01 FS, 10 LS
 //   bypass_en : no bit stuffing and no NRZI (OpMode "disable bit stuffing and NRZI")
 //   sync_dis  : do not insert SYNC
+//   eop_dis   : no EOP at the end of the packet (OpMode 10 chirp / K signalling)
 //-----------------------------------------------------------------------------
 `timescale 1ns/1ps
 
@@ -39,6 +40,7 @@ module usb_tx_datapath #(
     input  wire [1:0]  speed,
     input  wire        bypass_en,
     input  wire        sync_dis,
+    input  wire        eop_dis,
 
     // captured ULPI Link side
     input  wire        cmd_tx,
@@ -131,6 +133,7 @@ module usb_tx_datapath #(
         .ce60        (ce60),
         .speed       (speed),
         .bypass_en   (bypass_en),
+        .eop_dis     (eop_dis),
         .in_valid    (m_valid),
         .in_ready    (m_ready),
         .in_data     (m_data),

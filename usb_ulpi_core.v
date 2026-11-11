@@ -72,6 +72,7 @@ module usb_ulpi_core #(
     input  wire [1:0]  speed,
     input  wire        bypass_en,
     input  wire        sync_dis,
+    input  wire        eop_dis,
 
     // PHY byte bursts toward the Link
     input  wire        arb_valid,
@@ -159,6 +160,7 @@ module usb_ulpi_core #(
         .speed       (speed),
         .bypass_en   (bypass_en),
         .sync_dis    (sync_dis),
+        .eop_dis     (eop_dis),
         .cmd_tx      (cmd_tx && !reg_link_busy && cmd_ok),  // not while a register transfer runs
         .cmd_pid     (cmd_pid),
         .lnk_valid   (lnk_valid),

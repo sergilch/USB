@@ -32,6 +32,10 @@
 //             (NRZI 01111111 = one transition followed by seven held bits).
 //   * FS/LS : SE0 for 2 bit times (tx_se0 = 1), then J for 1 bit time.
 //   Afterwards tx_en is released and tx_done pulses for one cycle.
+//   eop_dis = 1 (OpMode 10 chirp / K signalling, from usb_mode_term_ctrl;
+//   sampled with speed at packet start): no EOP.  tx_en is released one bit
+//   time after the last data bit started, i.e. the last bit is sent in full and
+//   the line is left at once; an underrun ends the packet the same way.
 //
 // Speed  (XcvrSelect encoding): 00 = HS, 01 = FS, 10 = LS, 11 = treated as FS
 //   (LS-via-FS-preamble switching is not implemented).  speed is sampled when
@@ -52,6 +56,7 @@ module usb_tx_serializer #(
     input  wire        ce60,         // 1 cycle in 8, aligned with clk60
 
     input  wire [1:0]  speed,        // 00 HS, 01 FS, 10 LS
+    input  wire        eop_dis,      // 1 = end the packet without EOP
 
     input  wire        in_valid,
     output wire        in_ready,
@@ -89,6 +94,7 @@ module usb_tx_serializer #(
     reg [3:0]        cur_cnt;    // bits left in cur_data
     reg              cur_last;
     reg [1:0]        spd_q;
+    reg              eop_q;      // eop_dis of the current packet
     reg [DIV_W-1:0]  tick_cnt;
     reg [3:0]        eop_cnt;
     reg              last_line;  // level of the last transmitted data bit
@@ -123,6 +129,7 @@ module usb_tx_serializer #(
             cur_cnt     <= 4'd0;
             cur_last    <= 1'b0;
             spd_q       <= SPD_HS;
+            eop_q       <= 1'b0;
             tick_cnt    <= {DIV_W{1'b0}};
             eop_cnt     <= 4'd0;
             last_line   <= 1'b1;
@@ -158,6 +165,7 @@ module usb_tx_serializer #(
                         cur_cnt    <= hold_nbits;
                         cur_last   <= hold_last;
                         spd_q      <= speed;
+                        eop_q      <= eop_dis;
                         tx_speed   <= speed;
                         tick_cnt   <= div_m1(speed);  // first bit on the next edge
                         eop_cnt    <= 4'd0;
@@ -206,7 +214,14 @@ module usb_tx_serializer #(
                     if (tick) begin
                         tick_cnt <= {DIV_W{1'b0}};
                         eop_cnt  <= eop_cnt + 4'd1;
-                        if (spd_q == SPD_HS) begin
+                        if (eop_q) begin                 // no EOP: release now
+                            txd     <= 1'b1;
+                            tx_en   <= 1'b0;
+                            tx_se0  <= 1'b0;
+                            st      <= ST_IDLE;
+                            closing <= 1'b0;
+                            tx_done <= 1'b1;
+                        end else if (spd_q == SPD_HS) begin
                             if (eop_cnt < 4'd8) begin
                                 txd    <= ~last_line;        // transition, then hold
                                 tx_en  <= 1'b1;

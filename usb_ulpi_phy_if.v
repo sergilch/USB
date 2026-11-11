@@ -43,6 +43,7 @@ module usb_ulpi_phy_if #(
     input  wire [1:0]  speed,
     input  wire        bypass_en,
     input  wire        sync_dis,
+    input  wire        eop_dis,
     input  wire        dir_hold,
 
     // RX datapath
@@ -105,6 +106,7 @@ module usb_ulpi_phy_if #(
         .speed         (speed),
         .bypass_en     (bypass_en),
         .sync_dis      (sync_dis),
+        .eop_dis       (eop_dis),
         .arb_valid     (arb_valid),
         .arb_data      (arb_data),
         .arb_is_data   (arb_is_data),

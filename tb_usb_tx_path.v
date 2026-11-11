@@ -13,7 +13,8 @@
 // inverted level, FS/LS SE0 SE0 J), NRZI decode from J, de-stuffing (a 0 must
 // follow every run of six 1s, also at the end of the packet), a whole number of
 // bytes, and the bytes themselves.  With bypass_en there is no NRZI and no
-// stuffing.  Also checked:
+// stuffing.  With eop_dis (OpMode 10 chirp / K signalling) there is no EOP:
+// tx_en must drop right after the last data bit.  Also checked:
 //   * tx_speed of every packet;
 //   * tx_underrun never pulses, except in the directed underrun case;
 //   * busy: high from the first accepted byte of a packet until its tx_done,
@@ -49,6 +50,7 @@ module tb_usb_tx_path;
     // ---------------- DUT ----------------
     reg  [1:0] speed     = 2'b00;
     reg        bypass_en = 1'b0;
+    reg        eop_dis   = 1'b0;
     reg        in_valid  = 1'b0;
     reg  [7:0] in_data   = 8'd0;
     reg        in_last   = 1'b0;
@@ -62,6 +64,7 @@ module tb_usb_tx_path;
         .ce60        (ce60),
         .speed       (speed),
         .bypass_en   (bypass_en),
+        .eop_dis     (eop_dis),
         .in_valid    (in_valid),
         .in_ready    (in_ready),
         .in_data     (in_data),
@@ -83,6 +86,7 @@ module tb_usb_tx_path;
     integer   q_len  [0:255];
     reg [1:0] q_spd  [0:255];
     reg       q_byp  [0:255];
+    reg       q_eop  [0:255];             // sent without EOP
     reg       q_trunc[0:255];             // underrun expected: line packet is cut short
     integer   q_gapat[0:255];             // source pauses before this byte (-1: none)
     integer   q_gaplen[0:255];
@@ -150,12 +154,13 @@ module tb_usb_tx_path;
 
     task check_packet;
         integer n, i, k, ndata, c, bn, dn, nbytes, b, j;
-        reg     prev, before, mism, byp, trunc;
+        reg     prev, before, mism, byp, trunc, noeop;
         reg [7:0] bv;
         begin
             n     = cap_n;
             byp   = q_byp[cur];
             trunc = q_trunc[cur];
+            noeop = q_eop[cur];
 
             if (cyc != n * cap_div) begin
                 errors = errors + 1;
@@ -164,7 +169,9 @@ module tb_usb_tx_path;
             end
 
             ndata = 0;
-            if (cap_spd == 2'b00) begin
+            if (noeop) begin
+                ndata = n;                                 // no EOP: every bit is data
+            end else if (cap_spd == 2'b00) begin
                 if (n < 9) begin
                     errors = errors + 1;
                     $display("ERROR @%0t: HS packet too short (%0d bits)", $time, n);
@@ -337,6 +344,7 @@ module tb_usb_tx_path;
             q_len[qi]    = nb;
             q_spd[qi]    = speed;
             q_byp[qi]    = bypass_en;
+            q_eop[qi]    = eop_dis;
             q_trunc[qi]  = trunc;
             q_gapat[qi]  = gapat;
             q_gaplen[qi] = gaplen;
@@ -366,6 +374,28 @@ module tb_usb_tx_path;
             @(negedge clk_bit);
             speed     = spd;
             bypass_en = byp;
+            eop_dis   = 1'b0;
+        end
+    endtask
+
+    // OpMode 10 signalling: bypass and no EOP
+    task set_noeop(input [1:0] spd);
+        begin
+            set_cfg(spd, 1'b1);
+            eop_dis = 1'b1;
+        end
+    endtask
+
+    // chirp-like packets: runs of 00h (K) and FFh (J)
+    task chirp_run(input integer npk, input integer maxlen);
+        integer i, nb, w;
+        begin
+            for (i = 0; i < npk; i = i + 1) begin
+                nb = 1 + ({$random(seed)} % maxlen);
+                for (w = 0; w < nb; w = w + 1)
+                    src_bytes[w] = (({$random(seed)} % 4) == 0) ? $random(seed) : ((i % 2) ? 8'hFF : 8'h00);
+                queue_packet(nb, -1, 0, 1'b0);
+            end
         end
     endtask
 
@@ -434,6 +464,11 @@ module tb_usb_tx_path;
         directed;
         random_run(30, 20);
 
+        $display("HS no EOP (chirp signalling)");
+        set_noeop(2'b00);
+        directed;
+        chirp_run(20, 40);
+
         $display("FS directed + random, gaps inside packets");
         set_cfg(2'b01, 1'b0);
         src_gaps = 1'b1;
@@ -447,6 +482,12 @@ module tb_usb_tx_path;
         $display("FS bypass");
         set_cfg(2'b01, 1'b1);
         random_run(4, 6);
+
+        $display("FS / LS no EOP (resume K of a peripheral)");
+        set_noeop(2'b01);
+        chirp_run(4, 6);
+        set_noeop(2'b10);
+        chirp_run(2, 3);
 
         $display("LS directed + random");
         set_cfg(2'b10, 1'b0);

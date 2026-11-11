@@ -115,6 +115,7 @@ module usb_ulpi_tx_top #(
         .ce60        (ce60),
         .speed       (speed),
         .bypass_en   (bypass_en),
+        .eop_dis     (1'b0),
         .sync_dis    (sync_dis),
         .cmd_tx      (cmd_tx),
         .cmd_pid     (cmd_pid),

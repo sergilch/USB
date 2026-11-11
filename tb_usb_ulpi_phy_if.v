@@ -76,7 +76,7 @@ module tb_usb_ulpi_phy_if;
         .ulpi_data_out (ulpi_data_out),
         .ulpi_data_oe  (ulpi_data_oe),
         .speed         (2'b00),
-        .bypass_en     (1'b0),
+        .bypass_en     (1'b0), .eop_dis(1'b0),
         .sync_dis      (1'b0),
         .dir_hold      (1'b0),
         .rx_start      (rx_start),

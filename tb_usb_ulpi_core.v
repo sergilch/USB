@@ -92,7 +92,7 @@ module tb_usb_ulpi_core;
         .ulpi_data_out (ulpi_data_out),
         .ulpi_data_oe  (ulpi_data_oe),
         .speed         (speed),
-        .bypass_en     (bypass_en),
+        .bypass_en     (bypass_en), .eop_dis(1'b0),
         .sync_dis      (sync_dis),
         .arb_valid     (arb_valid),
         .arb_data      (arb_data),

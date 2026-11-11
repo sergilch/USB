@@ -47,6 +47,7 @@ module tb_usb_tx_serializer;
         .rst_n      (rst_n),
         .ce60       (ce60),
         .speed      (speed),
+        .eop_dis    (1'b0),
         .in_valid   (in_valid),
         .in_ready   (in_ready),
         .in_data    (in_data),
