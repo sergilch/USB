@@ -1,0 +1,29 @@
+// tb_afe_pll_tr.scs - tb_afe_pll with the transistor-level PLL (AFE/spice/afe_pll_tr.sp)
+// Run from this directory:  spectre tb_afe_pll_tr.scs   (or ./run_va_tests.sh pll_tr)
+// Same checker and sequence as tb_afe_pll.scs (tb_afe_pll.va), adapted with
+//   t_run          30 us per locking phase instead of 80 (transistor level;
+//                  the loop settles in about 3 us, see AFE/doc/pll_schematic.md,
+//                  and 30 us still leaves two lock-detector windows)
+//   vc_lo / vc_hi  control voltage 0.3 .. 1.5 V (the charge-pump range): this
+//                  VCO needs 0.917 V at tt, more at the slow corner
+//   f26_lo / _hi   26 MHz with /20: the VCO reaches 520 MHz and locks there;
+//                  the check that no window falls inside 4726 +- 5 stays
+// Devices: generic180.lib (placeholder for the xh018 models; replace the
+// .lib line and the device names nch / pch with the X-FAB ones).
+simulator lang=spice
+.lib "../../spice/models/generic180.lib" tt
+.include "../../spice/afe_pll_tr.sp"
+simulator lang=spectre
+global 0
+
+ahdl_include "tb_afe_pll.va"
+
+DUT (fref pll_en refsel1 refsel0 clk_bit ref_dig vctl vdd18a 0) afe_pll_tr
+CHK (fref pll_en refsel1 refsel0 clk_bit ref_dig vctl vdd18a 0) tb_afe_pll_chk \
+    t_run=30u vc_lo=0.3 vc_hi=1.5 f26_lo=515e6 f26_hi=525e6
+CCLK (clk_bit 0) capacitor c=200f
+CREF (ref_dig 0) capacitor c=50f
+
+opts options save=selected
+save clk_bit ref_dig vctl fref
+tr   tran stop=110u errpreset=moderate method=gear2only

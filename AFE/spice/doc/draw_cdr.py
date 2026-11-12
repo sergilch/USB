@@ -244,12 +244,12 @@ def sheet_top():
     return s
 
 
-def sheet_cp():
+def sheet_cp(n=5):
     s = Sheet(980, 470, "Charge pump: PMOS and NMOS sources always on, switch pairs steer ICP to the filter or to vrep, "
                         "an OTA follower holds vrep at the filter voltage")
     s.vdd(150, 40); s.vdd(610, 40); s.vdd(790, 40)
     # PMOS source
-    p = s.mos(135, 90, "p", "XPSRC", "5×4/1")
+    p = s.mos(135, 90, "p", "XPSRC", f"{n}×4/1")
     s.line((150, 40), (150, 60))
     s.pin(60, 90, "vbp", "l"); s.line((64, 90), (105, 90))
     s.line((150, 120), (150, 140))
@@ -279,7 +279,7 @@ def sheet_cp():
     s.line((90, 325), (90, 345), (210, 345), (210, 325))
     s.dot(150, 345)
     s.text(158, 360, "sn", "start", "sz")
-    n = s.mos(135, 390, "n", "XNSRC", "5×2/1")
+    s.mos(135, 390, "n", "XNSRC", f"{n}×2/1")
     s.line((150, 345), (150, 360))
     s.pin(60, 390, "vbn", "l"); s.line((64, 390), (105, 390))
     s.line((150, 420), (150, 440)); s.gnd(150, 440)

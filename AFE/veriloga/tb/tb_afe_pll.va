@@ -18,7 +18,8 @@
 //   3  19.2 MHz, REFSEL = 00 (/25): the same checks, 6400 counts
 //   4  26 MHz, REFSEL = 10 (/20, no fractional divider): never a window
 //      inside 4726 +- 5 (the digital never reports lock), VCO at its 500 MHz
-//      limit
+//      limit (f26_lo / f26_hi; vc_lo / vc_hi set the 24 MHz control-voltage
+//      window; both exist for the transistor netlist, tb_afe_pll_tr.scs)
 // ppm_ref offsets the reference (crystal tolerance); the expected clock moves
 // with it, the window counts do not.
 //-----------------------------------------------------------------------------
@@ -38,6 +39,11 @@ module tb_afe_pll_chk (CDR_FREF, PLL_EN, REFSEL1, REFSEL0, CLK_BIT_A, REF_DIG,
     parameter real t_set_24 = 45e-6;     // spec 4.3
     parameter real t_set_19 = 30e-6;
     parameter real t_run    = 80e-6;     // length of each locking phase
+    // for other DUTs (transistor netlist AFE/spice/afe_pll_tr.sp, tb_afe_pll_tr.scs):
+    parameter real vc_lo    = 0.85;      // control-voltage window at 24 MHz [V]
+    parameter real vc_hi    = 0.95;
+    parameter real f26_lo   = 499e6;     // CLK_BIT_A with 26 MHz and /20: at the model's
+    parameter real f26_hi   = 501e6;     // 500 MHz limit; a real VCO may lock to 520 MHz
 
     real    f_ref, phr, t_step, dt, t_en, t_set, t_viol, f_meas, err, t_blk0, t_win0, f_exp;
     integer errors, reported, step, en, rs1, rs0, rq, mode, n_exp;
@@ -111,7 +117,7 @@ module tb_afe_pll_chk (CDR_FREF, PLL_EN, REFSEL1, REFSEL0, CLK_BIT_A, REF_DIG,
                     `TB_RNG("24 MHz: max window deviation from 5120 after settling", win_dev, 0, 1)
                     `TB_CHK(n_win >= 2, "24 MHz: fewer than 2 windows after settling")
                     `TB_RNG("24 MHz: f(CLK_BIT_A) [Hz]", f_meas, f_exp * (1.0 - 2e-4), f_exp * (1.0 + 2e-4))
-                    `TB_RNG("24 MHz: control voltage [V]", V(CDR_CH_OUT_PLL, VSS18A), 0.85, 0.95)
+                    `TB_RNG("24 MHz: control voltage [V]", V(CDR_CH_OUT_PLL, VSS18A), vc_lo, vc_hi)
                     en = 0; mode = 0;
                     dt = 50e-9;
                 end
@@ -149,7 +155,7 @@ module tb_afe_pll_chk (CDR_FREF, PLL_EN, REFSEL1, REFSEL0, CLK_BIT_A, REF_DIG,
                 end
                 8: begin
                     `TB_CHK(n_good26 == 0, "26 MHz with /20: a window inside 4726 +- 5 (digital would lock)")
-                    `TB_RNG("26 MHz with /20: f(CLK_BIT_A) at the VCO limit [Hz]", f_meas, 499e6, 501e6)
+                    `TB_RNG("26 MHz with /20: f(CLK_BIT_A) [Hz]", f_meas, f26_lo, f26_hi)
                     `TB_FINISH
                     $finish;
                 end
