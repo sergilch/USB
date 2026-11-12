@@ -1,0 +1,38 @@
+* generic180.lib - generic 180 nm, 1.8 V CMOS models (BSIM3v3, level 49)
+*
+* PLACEHOLDER for the X-FAB xh018 models, which are not in this repo (see
+* AFE/spice/README.md).  The values are typical published 0.18 um numbers,
+* not any foundry's data: tox 4.1 nm, Vth ~ +0.40 / -0.42 V, Idsat at
+* |Vgs| = |Vds| = 1.8 V about 600 / 260 uA/um, FO4 inverter delay about 85 ps
+* (tt, 27 C).  Corners shift Vth and mobility only:
+*   tt  nominal        ff / ss  Vth -/+ 50 mV, mobility +/- 8 %
+*   fs  fast N, slow P sf  slow N, fast P
+* Usage (ngspice and Spectre in "simulator lang=spice"):
+*   .lib "models/generic180.lib" tt
+* Devices: nch / pch (1.8 V core).  Diffusion: pass ad/as/pd/ps (the cells
+* use ad = as = W * 0.48 um, pd = ps = 2 * (W + 0.48 um)).
+
+.lib tt
+.param dvn=0     dvp=0     mun=1.0  mup=1.0
+.inc "generic180_mos.inc"
+.endl tt
+
+.lib ff
+.param dvn=-0.05 dvp=0.05  mun=1.08 mup=1.08
+.inc "generic180_mos.inc"
+.endl ff
+
+.lib ss
+.param dvn=0.05  dvp=-0.05 mun=0.92 mup=0.92
+.inc "generic180_mos.inc"
+.endl ss
+
+.lib fs
+.param dvn=-0.05 dvp=-0.05 mun=1.08 mup=0.92
+.inc "generic180_mos.inc"
+.endl fs
+
+.lib sf
+.param dvn=0.05  dvp=0.05  mun=0.92 mup=1.08
+.inc "generic180_mos.inc"
+.endl sf

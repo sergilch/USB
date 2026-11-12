@@ -5,9 +5,11 @@
 // (SE0) -> SYNC (KJKJ...KK, sync_len bits as left after hubs) -> PRBS7
 // payload -> EOP (8 bits at the last level) -> idle of 20-60 bits plus a
 // random fraction of a bit, so every packet starts at a new phase relative to
-// CLK_RX.  CDR_V_IN_2 is held at 0.9 V, the PLL's control voltage at
-// 480 MHz, so the CDR VCO free-runs at exactly 480 MHz (the PLL itself is
-// tested in tb_afe_pll).
+// CLK_RX.  CDR_V_IN_2 is held at v_coarse (0.9 V), the PLL's control voltage
+// at 480 MHz, so the CDR VCO free-runs at exactly 480 MHz (the PLL itself is
+// tested in tb_afe_pll).  v_coarse, t_smp (CDR sampling instant before the
+// CLK_RX crossing) and t_start (CDR_EN low first, filter reset) adapt the
+// checker to the transistor netlist (tb_afe_cdr_tr.scs); defaults = afe_cdr.va.
 //
 //   n_short packets, 0 ppm, 64-bit payload, SYNC 12 bits (every 4th: 32)
 //   n_long packets at +ppm_long, n_long at -ppm_long, len_long bits (1027
@@ -48,6 +50,10 @@ module tb_afe_cdr_chk (CDR_DATA, CDR_EN, CDR_V_IN_2, CLK_RX, HS_RXD, VDD18A, VSS
     parameter real    m_min     = 0.15;       // UI
     parameter real    t_e       = 25e-12;     // midpoint of the 50 ps data / clock edges
     parameter integer seed0     = 3;
+    // for other DUTs (transistor netlist AFE/spice/afe_cdr_tr.sp, tb_afe_cdr_tr.scs):
+    parameter real    v_coarse  = 0.9;        // CDR_V_IN_2 [V] (480 MHz on the coarse curve)
+    parameter real    t_smp     = 25e-12;     // sampling instant before the CLK_RX crossing
+    parameter real    t_start   = 0.0;        // CDR_EN low until then (filter reset)
 
     real    ui_tx, t_bit, t_s, m, m_prev, t_clk, t_f0, t_seq, f_fr, lock_sum, t_q, tq_min, tq_max;
     integer errors, reported, step, en, lvl, prev_lvl, gst, gi, glen, slen, plen, x, pkt, n_pkt;
@@ -57,9 +63,9 @@ module tb_afe_cdr_chk (CDR_DATA, CDR_EN, CDR_V_IN_2, CLK_RX, HS_RXD, VDD18A, VSS
     analog begin
         @(initial_step) begin
             errors = 0; reported = 0; step = 0; seed = seed0;
-            en = 1; lvl = 0; prev_lvl = 0; gst = 0; gi = 0; glen = 20; x = 1;
+            en = (t_start > 0.0) ? 0 : 1; lvl = 0; prev_lvl = 0; gst = 0; gi = 0; glen = 20; x = 1;
             pkt = 0; n_pkt = n_short + 2 * n_long; slen = 12; plen = len_short;
-            ui_tx = ui; t_bit = 50e-9; t_seq = 1.0; t_clk = -1.0;
+            ui_tx = ui; t_bit = 50e-9 + t_start; t_seq = 1.0; t_clk = -1.0;
             cur_pb = -1; first_tr = -1; k = 0; k_prev = -10; k_viol = -1; exp_prev = 0; m_prev = 0.0;
             lock_sum = 0.0; lock_max = 0; n_lock = 0;
             nclk = 0; nclk0 = 0; n_dchk = 0; n_derr = 0; n_slip = 0; n_tq = 0;
@@ -68,9 +74,11 @@ module tb_afe_cdr_chk (CDR_DATA, CDR_EN, CDR_V_IN_2, CLK_RX, HS_RXD, VDD18A, VSS
 
         // ---- stimulus ----
         V(VDD18A, VSS18A)     <+ 1.8;
-        V(CDR_V_IN_2, VSS18A) <+ 0.9;
+        V(CDR_V_IN_2, VSS18A) <+ v_coarse;
         V(CDR_EN, VSS18A)     <+ 1.8 * transition(en,  0, 50e-12);
         V(CDR_DATA, VSS18A)   <+ 1.8 * transition(lvl, 0, 50e-12);
+
+        @(timer(t_start)) if (t_start > 0.0 && step == 0) en = 1;
 
         // ---- packet generator: one event per transmitted bit ----
         @(timer(t_bit)) begin
@@ -137,7 +145,7 @@ module tb_afe_cdr_chk (CDR_DATA, CDR_EN, CDR_V_IN_2, CLK_RX, HS_RXD, VDD18A, VSS
         @(cross(V(CLK_RX, VSS18A) - 0.9, +1)) begin
             nclk  = nclk + 1;
             t_clk = $abstime;
-            t_s   = $abstime - t_e;                                // CDR sampling instant
+            t_s   = $abstime - t_smp;                              // CDR sampling instant
             if (cur_pb >= 0) begin
                 m = min(t_s - (t_bit - ui_tx + t_e), (t_bit + t_e) - t_s) / ui_tx;
                 k = (t_s < t_bit - ui_tx + t_e) ? cur_pb - 1 : cur_pb;

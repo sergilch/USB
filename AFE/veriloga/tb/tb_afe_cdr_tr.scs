@@ -1,0 +1,29 @@
+// tb_afe_cdr_tr.scs - tb_afe_cdr with the transistor-level CDR (AFE/spice/afe_cdr_tr.sp)
+// Run from this directory:  spectre tb_afe_cdr_tr.scs   (or ./run_va_tests.sh cdr_tr)
+// Same checker and sequence as tb_afe_cdr.scs (tb_afe_cdr.va), adapted with
+//   v_coarse  CDR_V_IN_2 for 480 MHz on this VCO's coarse curve (tt, 27 C)
+//   t_smp     the netlist samples CDR_DATA 207 ps before the CLK_RX
+//             crossing (INV4 / INV5 lag the PD clock by 127 ps, the data
+//             input buffer adds 80 ps; ngspice, AFE/doc/cdr_schematic.md)
+//   t_start   CDR_EN low for the first 2 us, so the loop filter starts reset
+// Devices: generic180.lib (placeholder for the xh018 models; replace the
+// .lib line and the device names nch / pch with the X-FAB ones).
+// Transistor level: expect hours for the full sequence; for a quick run use
+// CHK n_short=8 n_long=1 len_long=1600.
+simulator lang=spice
+.lib "../../spice/models/generic180.lib" tt
+.include "../../spice/afe_cdr_tr.sp"
+simulator lang=spectre
+global 0
+
+ahdl_include "tb_afe_cdr.va"
+
+DUT (cdr_data cdr_en vcoarse clk_rx hs_rxd vfine vdd18a 0) afe_cdr_tr
+CHK (cdr_data cdr_en vcoarse clk_rx hs_rxd vdd18a 0)       tb_afe_cdr_chk \
+    v_coarse=0.917 t_smp=207p t_start=2u
+CCLK (clk_rx 0) capacitor c=100f
+CRXD (hs_rxd 0) capacitor c=50f
+
+opts options save=selected
+save clk_rx hs_rxd cdr_data vfine
+tr   tran stop=130u errpreset=moderate method=gear2only
