@@ -1,0 +1,45 @@
+// tb_afe_transceiver_tr.scs - tb_afe_transceiver with the transistor-level
+//                             transceiver (AFE/spice/afe_transceiver_tr.sp)
+// Run from this directory:  spectre tb_afe_transceiver_tr.scs   (or ./run_va_tests.sh transceiver_tr)
+// Same checker and sequence as tb_afe_transceiver.scs (tb_afe_transceiver.va),
+// with this design's figures (AFE/doc/transceiver_schematic.md section 4,
+// ngspice, tt; the seq case of AFE/spice/tb/tb_transceiver_tr.py runs the same
+// sequence with these values):
+//   hs_amp 400 mV +- 15 mV, t_hsf 0.7 ns and t_hsdly 0.75 ns +- t_tol 0.2 ns,
+//   P = N checked t_pn 3 ns after the input change (delay + edge), v_tol
+//   25 mV for P = N and chirp, RXRCV_A delay 1.5 .. 3.0 ns, released DM down
+//   to -v_rel = -250 mV 100 ns later (Miller-capacitor kick of the FS driver
+//   turning off; it recovers through the 15 kOhm pull-down).
+// t_en stays 20 ns: the netlist hands its current from the dump to the line
+// about 18.5 ns after TX_EN, so the check at t_en / 2 finds no line current.
+// The transistor netlist takes its bias from TX_VREF (1.2 V source here; the
+// model's testbench ties TX_VREF to ground, bias_mode 0).
+// Devices: generic180.lib (placeholder for the xh018 models; replace the
+// .lib line and the device names nch / pch / nch33 / pch33 with the X-FAB ones).
+simulator lang=spice
+.lib "../../spice/models/generic180.lib" tt
+.include "../../spice/afe_transceiver_tr.sp"
+simulator lang=spectre
+global 0
+
+ahdl_include "../afe_transceiver.va"
+ahdl_include "tb_afe_transceiver.va"
+
+VREF (tx_vref 0) vsource dc=1.2
+DUT (tx_in_p tx_in_n tx_en 0 tx_vref cap_p cap_n \
+     fs_oe fs_dat fs_se0 fs_ls fs_rx_en rxrcv rxdp rxdm \
+     dp_pu hs_term pd0 pd1 dp dm vdd33 vdd18 0) afe_transceiver_tr
+FE  (0 fe_term fe_pd fe_pd dp dm vdd33 0) afe_term
+CHK (tx_in_p tx_in_n tx_en fs_oe fs_dat fs_se0 fs_ls fs_rx_en rxrcv rxdp rxdm \
+     dp_pu hs_term pd0 pd1 fe_term fe_pd dp dm vdd33 vdd18 0) tb_afe_transceiver_chk \
+    hs_amp=0.400 hs_tol=15e-3 t_hsdly=0.75e-9 t_hsf=0.7e-9 t_tol=0.2e-9 v_tol=25e-3 \
+    t_pn=3e-9 rx_lo=1.5e-9 rx_hi=3.0e-9 v_rel=0.25
+CDP (dp 0) capacitor c=2p
+CDM (dm 0) capacitor c=2p
+CRC (rxrcv 0) capacitor c=20f
+CRP (rxdp 0)  capacitor c=20f
+CRM (rxdm 0)  capacitor c=20f
+
+opts options save=selected
+save tx_in_p tx_in_n tx_en dp dm rxrcv rxdp rxdm
+tr   tran stop=5u errpreset=moderate method=gear2only maxstep=20p

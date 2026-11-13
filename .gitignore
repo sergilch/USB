@@ -27,3 +27,6 @@ X-FAB/
 IO_CELLS_JIF3V.v
 VLG_PRIMITIVES.v
 BBSUD8F.v
+
+# Python bytecode (AFE/spice testbenches and drawing scripts)
+__pycache__/

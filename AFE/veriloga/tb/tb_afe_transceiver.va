@@ -45,6 +45,14 @@ module tb_afe_transceiver_chk (TX_IN_P, TX_IN_N, TX_EN,
     parameter real hs_tol  = 0.005;
     parameter real t_hsdly = 0.8125e-9;  // t_dly + t_rf_hs / 2, from the TX_IN midpoint
     parameter real t_hsf   = 0.5e-9;     // 0.8 * t_rf_hs
+    // tolerances for other implementations (defaults: the Verilog-A model;
+    // tb_afe_transceiver_tr.scs sets them for the transistor-level netlist)
+    parameter real t_tol   = 0.05e-9;    // HS fall time and delay
+    parameter real v_tol   = 0.01;       // HS P = N and chirp levels
+    parameter real t_pn    = 1.5e-9;     // P = N: settling before the check
+    parameter real rx_lo   = 2.0e-9;     // RXRCV_A delay window
+    parameter real rx_hi   = 2.5e-9;
+    parameter real v_rel   = 0.01;       // released DM: lowest level 100 ns later (-v_rel)
 
     real    t_step, dt, v33, t_k, t_a, t_b, t_c, t_d;
     integer errors, reported, step, arm;
@@ -120,19 +128,19 @@ module tb_afe_transceiver_chk (TX_IN_P, TX_IN_N, TX_EN,
                 5: begin
                     arm = 0;
                     `TB_RNG("HS K: DP - DM [V]", V(DP, DM), -hs_amp - hs_tol, -hs_amp + hs_tol)
-                    `TB_RNG("HS J->K 10-90 % fall time [s]", t_b - t_a, t_hsf - 0.05e-9, t_hsf + 0.05e-9)
-                    `TB_RNG("HS TX_IN -> line delay (50 %) [s]", t_c - t_k, t_hsdly - 0.05e-9, t_hsdly + 0.05e-9)
+                    `TB_RNG("HS J->K 10-90 % fall time [s]", t_b - t_a, t_hsf - t_tol, t_hsf + t_tol)
+                    `TB_RNG("HS TX_IN -> line delay (50 %) [s]", t_c - t_k, t_hsdly - t_tol, t_hsdly + t_tol)
                     txp = 1;                                        // P = N = 1
-                    dt = 1.5e-9;
+                    dt = t_pn;
                 end
                 6: begin
-                    `TB_RNG("HS P = N: DP - DM [V]", V(DP, DM), -0.01, 0.01)
-                    `TB_RNG("HS P = N: DP [V]", V(DP, GND), 0.5 * hs_amp - 0.01, 0.5 * hs_amp + 0.01)
+                    `TB_RNG("HS P = N: DP - DM [V]", V(DP, DM), -v_tol, v_tol)
+                    `TB_RNG("HS P = N: DP [V]", V(DP, GND), 0.5 * hs_amp - v_tol, 0.5 * hs_amp + v_tol)
                     txn = 0; hst = 0;                               // J into one 45 Ohm (chirp)
                     dt = 5e-9;
                 end
                 7: begin
-                    `TB_RNG("chirp: DP into 45 Ohm [V]", V(DP, GND), 2.0 * hs_amp - 0.01, 2.0 * hs_amp + 0.01)
+                    `TB_RNG("chirp: DP into 45 Ohm [V]", V(DP, GND), 2.0 * hs_amp - v_tol, 2.0 * hs_amp + v_tol)
                     txen = 0;
                     dt = 5e-9;
                 end
@@ -155,7 +163,7 @@ module tb_afe_transceiver_chk (TX_IN_P, TX_IN_N, TX_EN,
                     `TB_RNG("FS K: RXRCV_A [V]", V(RXRCV_A, GND), -0.01, 0.1)
                     `TB_RNG("FS K: RXDM_A [V]", V(RXDM_A, GND), 1.7, 1.81)
                     `TB_RNG("FS 10-90 % rise of DM (USB: 4-20 ns) [s]", t_b - t_a, 4e-9, 20e-9)
-                    `TB_RNG("RXRCV_A delay after DP = DM (t_rx + vdi/2 slope + edge) [s]", t_d - t_c, 2.0e-9, 2.5e-9)
+                    `TB_RNG("RXRCV_A delay after DP = DM (t_rx + vdi/2 slope + edge) [s]", t_d - t_c, rx_lo, rx_hi)
                     se0 = 1;
                     dt = 100e-9;
                 end
@@ -182,7 +190,7 @@ module tb_afe_transceiver_chk (TX_IN_P, TX_IN_N, TX_EN,
                 end
                 14: begin
                     `TB_RNG("device pulls: DP (1.5k up / 15k down) [V]", V(DP, GND), 2.95, 3.05)
-                    `TB_RNG("device pulls: DM [V]", V(DM, GND), -0.01, 0.01)
+                    `TB_RNG("device pulls: DM [V]", V(DM, GND), -v_rel, 0.01)
                     rxen = 0;
                     dt = 20e-9;
                 end

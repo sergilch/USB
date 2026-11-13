@@ -9,7 +9,7 @@ This directory holds the analog side of the USB 2.0 PHY:
 | `view analog_block USB 2.0 High.md` | The analog team's description of the existing transistor-level blocks: HS RX, HS TX, and the PLL-assisted CDR |
 | `veriloga/*.va` | Idealized Verilog-A models of the AFE blocks, aligned with the digital RTL |
 | `veriloga/tb/` | One testbench per block: a Verilog-A stimulus / checker module (`tb_afe_*.va`), a Spectre netlist (`tb_afe_*.scs`), shared macros (`tb_afe_common.vams`) and the runner `run_va_tests.sh` |
-| `spice/` | Transistor-level schematics as SPICE netlists (ngspice and Spectre), with a generic 180 nm placeholder model and ngspice testbenches; so far the CDR (`afe_cdr_tr.sp`, [doc/cdr_schematic.md](doc/cdr_schematic.md)) and the PLL (`afe_pll_tr.sp`, [doc/pll_schematic.md](doc/pll_schematic.md)), sharing one VCO cell, and the HS receiver with squelch and disconnect (`afe_receiver_tr.sp`, [doc/receiver_schematic.md](doc/receiver_schematic.md)); see [spice/README.md](spice/README.md) |
+| `spice/` | Transistor-level schematics as SPICE netlists (ngspice and Spectre), with a generic 180 nm placeholder model and ngspice testbenches; so far the CDR (`afe_cdr_tr.sp`, [doc/cdr_schematic.md](doc/cdr_schematic.md)) and the PLL (`afe_pll_tr.sp`, [doc/pll_schematic.md](doc/pll_schematic.md)), sharing one VCO cell, the HS receiver with squelch and disconnect (`afe_receiver_tr.sp`, [doc/receiver_schematic.md](doc/receiver_schematic.md)) and the line transceiver (`afe_transceiver_tr.sp`, [doc/transceiver_schematic.md](doc/transceiver_schematic.md)); see [spice/README.md](spice/README.md) |
 | `ams/` | Spectre AMS (xrun -ams) testbenches with the digital RTL, connect rules, runner; see [ams/README.md](ams/README.md) |
 | `doc/*.md` | One document per model: pins, behaviour, parameters, alignment with the digital side |
 
@@ -126,6 +126,7 @@ To vary a model parameter, override it on the `DUT` line of the netlist (for exa
 | Correlation with `afe_*_bm.v` | open: same defaults by construction, not compared in simulation |
 | Transistor-level PLL `spice/afe_pll_tr.sp` | simulated in ngspice on generic 180 nm models (2026-11-12, [doc/pll_schematic.md](doc/pll_schematic.md) section 4); `veriloga/tb/tb_afe_pll_tr.scs` runs it under the `tb_afe_pll` checker in Spectre, **not run** |
 | Transistor-level receiver `spice/afe_receiver_tr.sp` | simulated in ngspice on generic 180 nm models (2026-11-13, [doc/receiver_schematic.md](doc/receiver_schematic.md) section 4); `veriloga/tb/tb_afe_receiver_tr.scs` runs it under the `tb_afe_receiver` checker in Spectre, **not run** |
+| Transistor-level transceiver `spice/afe_transceiver_tr.sp` | simulated in ngspice on generic 180 nm models (2026-11-13, [doc/transceiver_schematic.md](doc/transceiver_schematic.md) section 4); `veriloga/tb/tb_afe_transceiver_tr.scs` runs it under the `tb_afe_transceiver` checker in Spectre, **not run** |
 | Transistor-level CDR `spice/afe_cdr_tr.sp` | simulated in ngspice on generic 180 nm models (2026-11-12, [doc/cdr_schematic.md](doc/cdr_schematic.md) section 4); `veriloga/tb/tb_afe_cdr_tr.scs` runs it under the `tb_afe_cdr` checker in Spectre, **not run** |
 
 ## Open points that change these models

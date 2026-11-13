@@ -1,6 +1,8 @@
 # Transceiver — `afe_transceiver` (`AFE/veriloga/afe_transceiver.va`)
 
-*Idealized model of everything that drives or loads DP / DM: the HS current driver (the analog team's HS TX block), the FS / LS transceiver, and the switchable terminations and pulls. The latter two are not designed yet. Status: written 2026-11-11, not simulated yet (see `AFE/README.md`).*
+*Idealized model of everything that drives or loads DP / DM: the HS current driver (the analog team's HS TX block), the FS / LS transceiver, and the switchable terminations and pulls. Status: written 2026-11-11, not simulated yet (see `AFE/README.md`).*
+
+*Transistor-level design of the same block (180 nm): [transceiver_schematic.md](transceiver_schematic.md).*
 
 | Module | Block | Verilog model with the same behaviour |
 |---|---|---|
