@@ -1,5 +1,7 @@
 # Receiver — `afe_receiver` (`AFE/veriloga/afe_receiver.va`)
 
+*Transistor-level design of the same block (180 nm): [receiver_schematic.md](receiver_schematic.md).*
+
 *Idealized model of the HS receive front end: the analog team's differential Schmitt-trigger HS RX block, and the squelch and disconnect detectors, which are not designed yet. Status: written 2026-11-11, not simulated yet (see `AFE/README.md`).*
 
 | Module | Block | Verilog model with the same behaviour |

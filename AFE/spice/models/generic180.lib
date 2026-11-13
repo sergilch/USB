@@ -9,7 +9,8 @@
 *   fs  fast N, slow P sf  slow N, fast P
 * Usage (ngspice and Spectre in "simulator lang=spice"):
 *   .lib "models/generic180.lib" tt
-* Devices: nch / pch (1.8 V core).  Diffusion: pass ad/as/pd/ps (the cells
+* Devices: nch / pch (1.8 V core), nch33 / pch33 (3.3 V thick oxide, tox 7 nm,
+* L >= 0.35 um, Vth ~ +0.68 / -0.66 V, Idsat ~ 600 / 290 uA/um at 3.3 V).  Diffusion: pass ad/as/pd/ps (the cells
 * use ad = as = W * 0.48 um, pd = ps = 2 * (W + 0.48 um)).
 
 .lib tt

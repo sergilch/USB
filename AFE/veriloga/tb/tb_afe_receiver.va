@@ -44,6 +44,9 @@ module tb_afe_receiver_chk (RX_IN_P, RX_IN_N, RX_EN, RX_VREF, RX_OUT_P, RX_OUT_N
     parameter real t_off  = 12e-9;
     parameter real t_disc = 4e-9;
     parameter real t_out  = 0.125e-9;   // squelch / disc output stage: t_dly + t_rf / 2
+    parameter real v_tol  = 0.5e-3;     // switching-threshold tolerance
+    parameter real t_tol  = 0.0;        // widens every timing window by +-t_tol
+                                        // (transistor netlist: tb_afe_receiver_tr.scs)
 
     real    t_step, dt, vr, t_r, amp, vdd, vdiff, vsw_up, vsw_dn;
     real    t_set, t_sqf, t_sqr, t_dr, t_vdr, d_out;
@@ -90,13 +93,13 @@ module tb_afe_receiver_chk (RX_IN_P, RX_IN_N, RX_EN, RX_VREF, RX_OUT_P, RX_OUT_N
                 end
                 2: begin
                     `TB_RNG("+50 mV: RX_OUT_P [V]", V(RX_OUT_P, GND), 1.7, 1.81)
-                    `TB_RNG("upper switching threshold [V]", vsw_up, 0.5 * v_hys - 0.5e-3, 0.5 * v_hys + 0.5e-3)
+                    `TB_RNG("upper switching threshold [V]", vsw_up, 0.5 * v_hys - v_tol, 0.5 * v_hys + v_tol)
                     vr = -0.05;
                     dt = 1.1e-6;
                 end
                 3: begin
                     `TB_RNG("-50 mV again: RX_OUT_P [V]", V(RX_OUT_P, GND), -0.01, 0.1)
-                    `TB_RNG("lower switching threshold [V]", vsw_dn, -0.5 * v_hys - 0.5e-3, -0.5 * v_hys + 0.5e-3)
+                    `TB_RNG("lower switching threshold [V]", vsw_dn, -0.5 * v_hys - v_tol, -0.5 * v_hys + v_tol)
                     arm = 2; vr = 0.0; t_r = 100e-12;
                     amp = 0.4; t_set = $abstime; n_sqf = 0;          // HS traffic
                     dt = 30e-9;
@@ -104,8 +107,8 @@ module tb_afe_receiver_chk (RX_IN_P, RX_IN_N, RX_EN, RX_VREF, RX_OUT_P, RX_OUT_N
                 4: begin
                     `TB_RNG("400 mV: SQUELCH_A [V]", V(SQUELCH_A, GND), -0.01, 0.1)
                     `TB_RNG("squelch release after the line became active [s]", t_sqf - t_set,
-                            t_on + t_out - 0.05e-9, t_on + t_out + 0.6e-9)
-                    `TB_RNG("RX_OUT_P delay after DP - DM = 0 [s]", d_out, t_dly, t_dly + 0.06e-9)
+                            t_on + t_out - 0.05e-9 - t_tol, t_on + t_out + 0.6e-9 + t_tol)
+                    `TB_RNG("RX_OUT_P delay after DP - DM = 0 [s]", d_out, t_dly - t_tol, t_dly + 0.06e-9 + t_tol)
                     `TB_RNG("400 mV alternating: DISC_A [V]", V(DISC_A, GND), -0.01, 0.1)
                     arm = 0; amp = 0.0; t_set = $abstime;            // line idle
                     dt = 30e-9;
@@ -113,7 +116,7 @@ module tb_afe_receiver_chk (RX_IN_P, RX_IN_N, RX_EN, RX_VREF, RX_OUT_P, RX_OUT_N
                 5: begin
                     `TB_RNG("idle: SQUELCH_A [V]", V(SQUELCH_A, GND), 1.7, 1.81)
                     `TB_RNG("squelch assertion after the line went idle [s]", t_sqr - t_set,
-                            t_off + t_out - 0.25e-9, t_off + t_out + 0.3e-9)
+                            t_off + t_out - 0.25e-9 - t_tol, t_off + t_out + 0.3e-9 + t_tol)
                     amp = 0.09; n_sqf = 0;
                     dt = 50e-9;
                 end
@@ -147,7 +150,7 @@ module tb_afe_receiver_chk (RX_IN_P, RX_IN_N, RX_EN, RX_VREF, RX_OUT_P, RX_OUT_N
                 end
                 12: begin
                     `TB_RNG("static 650 mV: DISC_A [V]", V(DISC_A, GND), 1.7, 1.81)
-                    `TB_RNG("DISC_A delay [s]", t_dr - t_set, t_disc + t_out, t_disc + t_out + 0.2e-9)
+                    `TB_RNG("DISC_A delay [s]", t_dr - t_set, t_disc + t_out - t_tol, t_disc + t_out + 0.2e-9 + t_tol)
                     en = 0;
                     dt = 20e-9;
                 end

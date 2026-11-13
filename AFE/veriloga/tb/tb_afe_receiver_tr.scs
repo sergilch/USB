@@ -1,0 +1,34 @@
+// tb_afe_receiver_tr.scs - tb_afe_receiver with the transistor-level receiver
+//                          (AFE/spice/afe_receiver_tr.sp)
+// Run from this directory:  spectre tb_afe_receiver_tr.scs   (or ./run_va_tests.sh receiver_tr)
+// Same checker and sequence as tb_afe_receiver.scs (tb_afe_receiver.va), with
+// this design's figures (AFE/doc/receiver_schematic.md section 4, ngspice):
+//   v_hys 18 mV, t_dly 0.9 ns (RX_OUT_P), t_on 7.3 ns (squelch release incl.
+//   1.5 ns of preamp / comparator delay), t_off 13.2 ns, t_disc 4.8 ns
+//   (tt values minus the checker's t_out 0.125 ns),
+//   v_tol 3 mV, t_tol 1 ns (simulator differences; the model keeps its
+//   defaults 0.5 mV / 0).
+// The checker drives a fixed 200 mV common mode (ngspice: realistic line).
+// Its first check at 50 ns finds the outputs still isolated (the receiver
+// turns on about 170 ns after RX_EN): those are the values it expects there.
+// Devices: generic180.lib (placeholder for the xh018 models; replace the
+// .lib line and the device names nch / pch / nch33 / pch33 with the X-FAB ones).
+simulator lang=spice
+.lib "../../spice/models/generic180.lib" tt
+.include "../../spice/afe_receiver_tr.sp"
+simulator lang=spectre
+global 0
+
+ahdl_include "tb_afe_receiver.va"
+
+DUT (rx_in_p rx_in_n rx_en rx_vref rx_out_p rx_out_n squelch disc rx_vdd 0 rx_vddo) afe_receiver_tr
+CHK (rx_in_p rx_in_n rx_en rx_vref rx_out_p rx_out_n squelch disc rx_vdd rx_vddo 0) tb_afe_receiver_chk \
+    v_hys=18e-3 t_dly=0.9e-9 t_on=7.3e-9 t_off=13.2e-9 t_disc=4.8e-9 v_tol=3e-3 t_tol=1e-9
+COP (rx_out_p 0) capacitor c=20f
+CON (rx_out_n 0) capacitor c=20f
+CSQ (squelch 0)  capacitor c=20f
+CDC (disc 0)     capacitor c=20f
+
+opts options save=selected
+save rx_in_p rx_in_n rx_out_p rx_out_n squelch disc
+tr   tran stop=5u errpreset=moderate method=gear2only maxstep=20p

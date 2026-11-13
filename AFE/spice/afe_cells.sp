@@ -1,9 +1,10 @@
 * afe_cells.sp - cells shared by the transistor-level AFE netlists
 *
-* Included by afe_cdr_tr.sp (CDR upper loop) and afe_pll_tr.sp (PLL, lower
-* loop).  The VCO (vco_v2i + vco_ring + an INV1-sized load on n5) must be the
+* Included by afe_cdr_tr.sp (CDR upper loop), afe_pll_tr.sp (PLL, lower
+* loop) and afe_receiver_tr.sp (HS receiver, squelch, disconnect).  The VCO (vco_v2i + vco_ring + an INV1-sized load on n5) must be the
 * same cell in both, so the CDR VCO free-runs at the PLL frequency (risk R3):
-* change it here only, and rerun both testbenches.  Devices: nch / pch from
+* change it here only, and rerun both testbenches.  Devices: nch / pch (and
+* nch33 / pch33, 3.3 V) from
 * the model library the testbench includes (AFE/spice/models/generic180.lib
 * for now).  Documentation: AFE/doc/cdr_schematic.md, AFE/doc/pll_schematic.md.
 
@@ -15,6 +16,14 @@ m0 d g s b nch w={w} l={l} ad={w*0.48u} as={w*0.48u} pd={2*w+0.96u} ps={2*w+0.96
 .subckt pfet d g s b w=1u l=0.18u
 m0 d g s b pch w={w} l={l} ad={w*0.48u} as={w*0.48u} pd={2*w+0.96u} ps={2*w+0.96u}
 .ends pfet
+* 3.3 V thick-oxide devices (L >= 0.35 um), diffusion 0.6 um: only the
+* receiver's input stages on RX_VDD use them
+.subckt nfet33 d g s b w=1u l=0.35u
+m0 d g s b nch33 w={w} l={l} ad={w*0.6u} as={w*0.6u} pd={2*w+1.2u} ps={2*w+1.2u}
+.ends nfet33
+.subckt pfet33 d g s b w=1u l=0.35u
+m0 d g s b pch33 w={w} l={l} ad={w*0.6u} as={w*0.6u} pd={2*w+1.2u} ps={2*w+1.2u}
+.ends pfet33
 
 *------------------------------------------------------------- logic cells
 .subckt inv a y vdd vss wn=0.5u wp=1.2u
