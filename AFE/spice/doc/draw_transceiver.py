@@ -42,7 +42,7 @@ def sheet_top():
     s.pin(-20, 130, "TX_EN", "tl")
     s.line((-16, 60), (70, 60), acc=True); s.line((-16, 95), (70, 95), acc=True); s.line((-16, 130), (70, 130))
     s.box(70, 45, 190, 100, "hs_tx: steering logic", "OAI21 + pre-drivers, ready", acc=True)
-    s.text(165, 132, "timer 18.5 ns", "middle", "sz")
+    s.text(165, 132, "timer 16 ns", "middle", "sz")
     s.arrow(260, 80, 420, 80, "gp, gn, gd (0..1.8 V)", acc=True)
     s.box(420, 40, 200, 110, "XS · XE · XSP/XSN/XSD", "17.8 mA, steering", acc=True)
     s.text(520, 128, "parked at VDD33 while off", "middle", "sz")
@@ -113,7 +113,7 @@ def sheet_hs():
     s.line((170, 220), (530, 220), acc=True)
     for x, nm, g, out in ((170, "XSP", "gp", "DP"), (350, "XSN", "gn", "DM"), (530, "XSD", "gd", "dq")):
         s.res(x, 220, 270, "RS" + nm[2], "10 Ω")
-        s.mos(x - 15, 300, "p", nm, "8×50/0.35 33")
+        s.mos(x - 15, 300, "p", nm, "12×50/0.35 33")
         s.line((x - 45, 300), (x - 60, 300)); s.text(x - 64, 304, g, "end", "dev")
         s.line((x, 330), (x, 350), acc=(out != "dq"))
         if out == "dq":
@@ -136,7 +136,7 @@ def sheet_hs():
     s.line((X + 35, 70), (X + 35, 80))
     s.line((X - 10, 110), (X - 20, 110)); s.text(X - 24, 114, "e33", "end", "sz")
     s.line((X + 35, 140), (X + 35, 160)); s.text(X + 35, 175, "cs → VDD33", "middle", "dev")
-    s.box(X, 200, 280, 60, "XKP, XKN, XKD (4/0.35 33)", "gp, gn, gd → VDD33")
+    s.box(X, 200, 280, 60, "XKP, XKN, XKD (8/0.35 33)", "gp, gn, gd → VDD33")
     s.box(X, 290, 280, 75, "XTP, XTN, XTD: nch33 + pch33 TG", "12/0.35 33, e33 / e33b")
     s.text(X + 140, 352, "cut the 1.8 V pre-drivers off", "middle", "sz")
     s.text(X + 140, 395, "With FS / LS on the line (DP at 3.3 V)", "middle", "sz")
@@ -152,7 +152,7 @@ def sheet_pre():
     s = Sheet(1000, 560, "HS steering logic and ready timer (VDD18): input buffers, OAI21 gates that open a switch "
                          "one inverter earlier than the other closes, final stages sinv that pull a switch gate down at "
                          "once (switch on) and up at 16 x 50 uA from the reference (switch off, sets the line edge), transmission gates to the switch gates; CR is discharged by about "
-                         "5 uA once TX_EN and pok rise and hands the current from the dump to the line 18.5 ns later")
+                         "5 uA once TX_EN and pok rise and hands the current from the dump to the line 16 ns later")
     y1, y2 = 70, 190
     s.pin(-20, y1, "TX_IN_P", "l", acc=True); s.pin(-20, y2, "TX_IN_N", "l", acc=True)
     s.line((-16, y1), (10, y1), acc=True); s.line((-16, y2), (10, y2), acc=True)
@@ -181,8 +181,8 @@ def sheet_pre():
     s.pin(380, yd, "rdy", "l"); s.line((384, yd), (400, yd))
     o = s.inv(400, yd, "XBD0", "1/2.5", 22); s.line(o, (o[0] + 20, yd))
     o = s.inv(o[0] + 20, yd, "XBD1", "sinv", 26); s.line(o, (o[0] + 20, yd))
-    s.text(640, 145, "sinv: pfet 12 in series with XP2", "start", "sz")
-    s.text(640, 160, "16×5/0.36 at pbs (pull-up 16 × 50 µA),", "start", "sz")
+    s.text(640, 145, "sinv: pfet 24 in series with XP2", "start", "sz")
+    s.text(640, 160, "18×5/0.36 at pbs (pull-up 18 × 50 µA),", "start", "sz")
     s.text(640, 175, "nfet 6 to GND (pull-down at once);", "start", "sz")
     s.text(640, 190, "pbs: XB0 nch33 at nb → pfet diode XB1", "start", "sz")
     t = s.tg(o[0] + 20, yd, "XTD"); s.line(t, (t[0] + 40, yd)); s.pin(t[0] + 44, yd, "gd → XSD", "r")
@@ -203,7 +203,7 @@ def sheet_pre():
     s.mos(145, Y + 145, "n", "XTS", "1/2 33")
     s.line((115, Y + 145), (90, Y + 145)); s.text(86, Y + 149, "nb", "end", "dev")
     s.line((160, Y + 175), (160, Y + 182)); s.gnd(160, Y + 182)
-    s.line((160, Y + 50), (230, Y + 50)); s.cap(230, Y + 50, Y + 95, "CR", "0.1 pF"); s.gnd(230, Y + 95)
+    s.line((160, Y + 50), (230, Y + 50)); s.cap(230, Y + 50, Y + 95, "CR", "0.085 pF"); s.gnd(230, Y + 95)
     s.text(232, Y + 44, "cr", "middle", "sz")
     s.text(240, Y + 150, "XTS: about 5 µA", "start", "sz")
     s.line((230, Y + 50), (300, Y + 50))
@@ -212,7 +212,7 @@ def sheet_pre():
     s.line((370, Y + 25), (370, Y + 40), (380, Y + 40)); s.text(366, Y + 22, "en", "end", "sz")
     s.line(g, (g[0] + 15, g[1]))
     o = s.inv(g[0] + 15, g[1], "XT4", None, 22); s.line(o, (o[0] + 20, g[1])); s.pin(o[0] + 24, g[1], "rdy", "r")
-    s.text(600, Y + 125, "cr falls to VDD18 / 2 in 0.1 pF · 0.9 V / 5 µA ≈ 18.5 ns; TX_EN falls: rdy = 0 at once", "middle", "ar")
+    s.text(600, Y + 125, "cr falls to VDD18 / 2 in 0.085 pF · 0.9 V / 5 µA ≈ 16 ns; TX_EN falls: rdy = 0 at once", "middle", "ar")
     shift(s, 80)
     return s
 

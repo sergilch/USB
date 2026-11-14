@@ -78,8 +78,8 @@ xn y a vss  vss  nfet33 w=1u
 * it off slowly), so the switch that turns on always leads (make before
 * break) and the turn-off ramp, set by the reference current, sets the line
 * edge.
-.subckt sinv a y pbs vdd vss mp=16
-xp1 y  a   pp  vdd pfet w=12u
+.subckt sinv a y pbs vdd vss mp=18
+xp1 y  a   pp  vdd pfet w=24u
 xp2 pp pbs vdd vdd pfet w=5u l=0.36u m={mp}
 xn1 y  a   vss vss nfet w=6u
 .ends sinv
@@ -129,13 +129,27 @@ xnd nb  nb  vss vss nfet33 w=5u l=1u
 * HS current driver.  en (VDD18) = TX_EN & pok; e33b (VDD33) = !en, drives
 * the enable switch XE.  Ready timer: CR is precharged to VDD18 while en = 0
 * and discharged by XTS (nb, about 5 uA) once en = 1; rdy rises when it
-* crosses the inverter threshold (about 18 ns).  Steering (VDD18 core logic):
+* crosses the inverter threshold (14 / 16 / 17 ns at ss / tt / ff: the line
+* must show the J of the lead well before SYNC, 20.8 ns after TX_EN, and stay
+* quiet for t_en / 2 = 10 ns).  Steering (VDD18 core logic):
 *   XSP on when rdy & (p | !n), XSN on when rdy & (n | !p), XSD on when !rdy
 * so P = N opens both (current splits, as the model), and on each data edge
 * the switch that turns on does so one inverter earlier than the other turns
 * off (make before break: cs never loses its current path); the final
 * pre-drivers (sinv: fast pull-down, pull-up starved at msp x 50 uA from the
 * reference) set the line edge.
+* Sizing against PVT: the switch that turns off needs its gate above
+* cs - |Vth|, and the gates only swing to VDD18.  At ss / 125 C / 1.62 V cs
+* sat at 1.92 V with 8-unit switches, so the starved pull-up ran out of
+* headroom, the old switch stayed half on and alternating bits reached only
+* 358 mV (first SYNC bit -11.6 %).  12-unit switches (lower Vov, cs 1.68 V),
+* a 24 um series pfet in sinv (more headroom near VDD18) and msp = 18 settle
+* every bit within 1.3 % at all three corners; more msp would push the ff
+* edge below 500 ps (USB).  Wider pre-driver pull-downs or TGs do not help:
+* the edge tail is the turn-off ramp, and more TG capacitance slows it.
+* XKP / XKN / XKD (8 um) must park the larger switch gates before XKC pulls
+* cs to VDD33, or a switch conducts from VDD33 into the line after TX_EN
+* falls (11 mV left 5 ns later at ss with 4 um).
 * Parking: the 0 .. 1.8 V gate drive keeps XSP / XSN off only while the line
 * is at HS levels (<= 0.8 V).  With FS / LS on the line (DP or DM at 3.3 V) a
 * gate at 1.8 V would turn them on, and their n-wells on cs would conduct.  So
@@ -143,15 +157,15 @@ xnd nb  nb  vss vss nfet33 w=5u l=1u
 * pulls cs to VDD33, and the thick-oxide transmission gates XTP / XTN / XTD
 * cut the 1.8 V pre-drivers off those nodes: every junction on DP / DM is
 * reverse biased.  e33 / e33b are TX_EN in the VDD33 domain.
-.subckt hs_tx p n en e33 e33b dp dm vbp nb vdd vddl vss msp=16
+.subckt hs_tx p n en e33 e33b dp dm vbp nb vdd vddl vss msp=18
 * output branch
 xs  sd vbp   vdd vdd pfet33 w=10u l=1u m=356
 xe  cs e33b sd  vdd pfet33 w=50u l=0.35u m=12
-xsp dp gp csp cs pfet33 w=50u l=0.35u m=8
+xsp dp gp csp cs pfet33 w=50u l=0.35u m=12
 rsp csp cs 10
-xsn dm gn csn cs pfet33 w=50u l=0.35u m=8
+xsn dm gn csn cs pfet33 w=50u l=0.35u m=12
 rsn csn cs 10
-xsd dq gd csd cs pfet33 w=50u l=0.35u m=8
+xsd dq gd csd cs pfet33 w=50u l=0.35u m=12
 rsd csd cs 10
 rdq dq vss 22.5
 * RSP / RSN / RSD: source degeneration, poly.  They widen the gate-voltage
@@ -173,7 +187,7 @@ xi3 nbr nq vddl vss inv
 xt0 cr  en  vddl vddl pfet w=1u
 xt1 cr  en  ct   vss nfet w=1u
 xts ct  nb  vss  vss nfet33 w=1u l=2u
-cr  cr  vss 0.1p
+cr  cr  vss 0.085p
 * CR: MIM
 xt2 cr  rb  vddl vss inv
 xt3 rb  en  rn vddl vss nand2
@@ -194,9 +208,9 @@ xtnn gni e33  gn vss nfet33 w=12u
 xtnp gni e33b gn vdd pfet33 w=12u
 xtdn gdi e33  gd vss nfet33 w=12u
 xtdp gdi e33b gd vdd pfet33 w=12u
-xkp gp e33 vdd vdd pfet33 w=4u
-xkn gn e33 vdd vdd pfet33 w=4u
-xkd gd e33 vdd vdd pfet33 w=4u
+xkp gp e33 vdd vdd pfet33 w=8u
+xkn gn e33 vdd vdd pfet33 w=8u
+xkd gd e33 vdd vdd pfet33 w=8u
 xkc cs e33 vdd vdd pfet33 w=10u
 .ends hs_tx
 
@@ -300,7 +314,7 @@ xi1 pokb pok vdd vss inv33
 *------------------------------------------------------------- top level
 .subckt afe_transceiver_tr tx_in_p tx_in_n tx_en tx_i_5u tx_vref tx_cap_p tx_cap_n
 + fs_oe_a fs_dat_a fs_se0_a fs_ls_a fs_rx_en_a rxrcv_a rxdp_a rxdm_a
-+ dp_pullup_en_a hs_term_en_a pd_en_a0 pd_en_a1 dp dm vdd33 vdd18 gnd ckv=1p msp=16 rt=12k
++ dp_pullup_en_a hs_term_en_a pd_en_a0 pd_en_a1 dp dm vdd33 vdd18 gnd ckv=1p msp=18 rt=12k
 ri5 tx_i_5u gnd 1g
 rcp tx_cap_p dp 1t
 rcn tx_cap_n dm 1t
